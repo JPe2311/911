@@ -146,18 +146,61 @@ function parseDespacho(raw) {
     .replace(/AsignaciÃ³n/g, "Asignación")
     .replace(/Ã³/g, "ó").replace(/Ã©/g, "é").replace(/Ãº/g, "ú")
     .replace(/Ã¡/g, "á").replace(/Ã­/g, "í");
-  const lines = parseLines(cleaned);
+  const lines = parseLines(cleaned).filter(line => line.trim() !== "");
+  if (!lines.length) return [];
+
+  const headerCols = parseSemicolon(lines[0]).map(h => h.toLowerCase().trim());
+  const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva"));
+
+  const idx = {
+    nombre: 0,
+    tiempo1: 1,
+    tiempo2: 2,
+    tiempo3: 3,
+    total: 4,
+    efectiva: 5,
+  };
+
+  if (hasHeader) {
+    headerCols.forEach((h, i) => {
+      if (h.includes("distrito") || h.includes("centro") || h.includes("nombre")) idx.nombre = i;
+      if (h.includes("inicio") && h.includes("despacho")) idx.tiempo1 = i;
+      if (h.includes("deriv") && h.includes("inicio")) idx.tiempo2 = i;
+      if (h.includes("creaci") && h.includes("despacho")) idx.tiempo3 = i;
+      if (h.includes("total")) idx.total = i;
+      if (h.includes("efectiva")) idx.efectiva = i;
+    });
+  }
+
   const distritos = [];
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
     const cols = parseSemicolon(lines[i]);
-    if (!cols[0] || cols[0].startsWith("Centro") || cols[0] === "") continue;
-    const nombre    = cols[0];
-    const tiempoStr = cols[1] || "";
-    const total     = parseInt(cols[2]) || 0;
-    const efectiva  = parseInt(cols[3]) || 0;
-    const tiempoSec = parseTimeToSeconds(tiempoStr);
+    if (!cols[idx.nombre] || cols[idx.nombre].startsWith("Centro") || cols[idx.nombre] === "") continue;
+    const nombre = cols[idx.nombre] || "";
+    const tiempo1Str = cols[idx.tiempo1] || "0:00";
+    const tiempo2Str = cols[idx.tiempo2] || "0:00";
+    const tiempo3Str = cols[idx.tiempo3] || "0:00";
+    const total = parseInt(cols[idx.total]) || 0;
+    const efectiva = parseInt(cols[idx.efectiva]) || 0;
+    const tiempo1Sec = parseTimeToSeconds(tiempo1Str);
+    const tiempo2Sec = parseTimeToSeconds(tiempo2Str);
+    const tiempo3Sec = parseTimeToSeconds(tiempo3Str);
+    const tiempoSec = tiempo1Sec;
     if (nombre && total > 0) {
-      distritos.push({ nombre, tiempoStr, tiempoSec, total, efectiva, noEfectiva: total - efectiva });
+      distritos.push({
+        nombre,
+        tiempo1Str,
+        tiempo2Str,
+        tiempo3Str,
+        tiempo1Sec,
+        tiempo2Sec,
+        tiempo3Sec,
+        tiempoStr: tiempo1Str,
+        tiempoSec,
+        total,
+        efectiva,
+        noEfectiva: total - efectiva,
+      });
     }
   }
   return distritos;
@@ -307,6 +350,45 @@ function ChartDoughnut({ id, data, options }) {
     return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [JSON.stringify(data)]);
   return React.createElement("canvas", { ref, id });
+}
+
+function ChartGauge({ id, value, max, color }) {
+  const ref = useRef(null);
+  const chartRef = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    const actual = Math.min(value, max);
+    chartRef.current = new Chart(ref.current, {
+      type: "doughnut",
+      data: {
+        labels: ["Valor", "Resto"],
+        datasets: [{ data: [actual, Math.max(0, max - actual)], backgroundColor: [color, "#E5E7EB"], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "80%",
+        rotation: -Math.PI,
+        circumference: Math.PI,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+      }
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [value, max, color]);
+  return React.createElement("canvas", { ref, id });
+}
+
+function getGaugeMax(value, defaultMax) {
+  if (typeof value !== "number" || isNaN(value)) return defaultMax;
+  return Math.max(defaultMax, Math.ceil(value / 30) * 30);
+}
+
+function getGaugeColor(value, threshold) {
+  if (typeof value !== "number" || isNaN(value)) return C.gray;
+  if (value <= threshold * 0.75) return C.green;
+  if (value <= threshold) return C.yellow;
+  return C.red;
 }
 
 function ChartLine({ id, data, options }) {
@@ -473,6 +555,24 @@ function ViewResumen({ data }) {
     };
   }, [dp]);
 
+  const gaugeData = useMemo(() => {
+    if (!dp?.length) return null;
+    const avg = (arr) => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+    const tiempoInicioDespacho = avg(dp.map(d => d.tiempo1Sec || 0));
+    const tiempoDerivacionInicio = avg(dp.map(d => d.tiempo2Sec || 0));
+    const tiempoCreacionDespacho = avg(dp.map(d => d.tiempo3Sec || 0));
+    return {
+      tiempoInicioDespacho,
+      tiempoDerivacionInicio,
+      tiempoCreacionDespacho,
+      thresholds: {
+        t1: 120,
+        t2: 90,
+        t3: 180,
+      }
+    };
+  }, [dp]);
+
   const chartOpts = (title, yLabel) => ({
     responsive: true, maintainAspectRatio: false,
     plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, padding: 12 } }, title: { display: false } },
@@ -553,6 +653,23 @@ function ViewResumen({ data }) {
             return React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg });
           })()
         )
+      )
+    ),
+    gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
+      React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Inicio → Despacho"),
+        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-1", value: gaugeData.tiempoInicioDespacho, max: getGaugeMax(gaugeData.tiempoInicioDespacho, 120), color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) })),
+        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) } }, fmtSeconds(gaugeData.tiempoInicioDespacho))
+      ),
+      React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Derivación → Inicio"),
+        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-2", value: gaugeData.tiempoDerivacionInicio, max: getGaugeMax(gaugeData.tiempoDerivacionInicio, 90), color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) })),
+        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) } }, fmtSeconds(gaugeData.tiempoDerivacionInicio))
+      ),
+      React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Creación → Despacho"),
+        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-3", value: gaugeData.tiempoCreacionDespacho, max: getGaugeMax(gaugeData.tiempoCreacionDespacho, 180), color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) })),
+        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) } }, fmtSeconds(gaugeData.tiempoCreacionDespacho))
       )
     ),
 
