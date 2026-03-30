@@ -181,14 +181,12 @@ function generateReportId() {
 }
 
 function generateToken() {
-  let hash = 0;
-  const str = Date.now() + Math.random();
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let token = "";
+  for (let i = 0; i < 8; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return Math.abs(hash).toString(36).substring(0, 8).toUpperCase();
+  return token;
 }
 
 function getReportHistory() {
@@ -200,49 +198,87 @@ function getReportHistory() {
   }
 }
 
-function saveReport(data, meta) {
+function generateTurnoLabel(meta) {
+  if (!meta.fechaDesde) return "Sin identificar";
+  const desde = `${meta.fechaDesde} ${meta.horaDesde || "00:00"}`;
+  const hasta = `${meta.horaHasta || "23:59"}`;
+  return `${meta.fechaDesde} ${meta.horaDesde || ""} → ${hasta}`.trim();
+}
+
+function saveReport(files, meta) {
   try {
     const history = getReportHistory();
+    
+    // Extraer datos completos
+    const agentesData = files?.agentes;
+    const abandonadasData = files?.abandonadas;
+    const despachoData = files?.despacho;
+    
+    // Construir meta completa si no existe
+    let fullMeta = { ...meta };
+    if (agentesData?.meta) fullMeta = { ...fullMeta, ...agentesData.meta };
+    
+    // Obtener totales usando múltiples fuentes
+    const totalOfrecidas = agentesData?.meta?.totalOfrecidas || 
+      (agentesData?.agents ? agentesData.agents.reduce((sum, a) => sum + (a.ofrecidas || 0), 0) : 0);
+    const totalContestadas = agentesData?.meta?.totalContestadas || 
+      (agentesData?.agents ? agentesData.agents.reduce((sum, a) => sum + (a.contestadas || 0), 0) : 0);
+    const totalAbandonadas = agentesData?.meta?.totalAbanCabina || 
+      (abandonadasData?.totals?.abandonadas || 
+      (abandonadasData?.intervals ? abandonadasData.intervals.reduce((sum, i) => sum + (i.abandonadas || 0), 0) : 0));
+
+    const turnoLabel = generateTurnoLabel(fullMeta);
+    
     const report = {
       id: generateReportId(),
       token: generateToken(),
-      fecha: new Date().toISOString(),
+      fechaGuardado: new Date().toISOString(),
+      turnoLabel: turnoLabel,
       turno: {
-        fecha: meta.fechaDesde,
-        horaDesde: meta.horaDesde,
-        horaHasta: meta.horaHasta,
+        fecha: fullMeta.fechaDesde || fullMeta.fecha,
+        horaDesde: fullMeta.horaDesde,
+        horaHasta: fullMeta.horaHasta,
       },
       resumen: {
-        totalOfrecidas: meta.totalOfrecidas || 0,
-        totalContestadas: meta.totalContestadas || 0,
-        totalAbandonadas: meta.totalAbanCabina || 0,
+        totalOfrecidas: totalOfrecidas,
+        totalContestadas: totalContestadas,
+        totalAbandonadas: totalAbandonadas,
       },
-      data: data,
+      // Guardar datos completos para visualización
+      datos: {
+        agentes: agentesData?.agents || [],
+        abandonadas: abandonadasData?.intervals || [],
+        despacho: despachoData || [],
+        agentesResumen: agentesData?.meta || {},
+        abandonadasResumen: abandonadasData?.totals || {},
+      },
     };
+    
     history.push(report);
     localStorage.setItem("sae911_reports", JSON.stringify(history));
+    console.log("✓ Reporte guardado:", { id: report.id, token: report.token, ofrecidas: totalOfrecidas, turno: turnoLabel });
     return report;
   } catch (e) {
-    console.error("Error saving report:", e);
+    console.error("✗ Error saving report:", e);
     return null;
   }
 }
 
-function getReportsByTurno(fechaDesde) {
+function getReportsByTurno(turnoLabel) {
   const history = getReportHistory();
-  return history.filter(r => r.turno.fecha === fechaDesde);
+  return history.filter(r => r.turnoLabel === turnoLabel);
 }
 
-function getTurnoStats(fechaDesde) {
-  const reports = getReportsByTurno(fechaDesde);
+function getTurnoStats(turnoLabel) {
+  const reports = getReportsByTurno(turnoLabel);
   if (reports.length === 0) return null;
   return {
-    turno: fechaDesde,
+    turnoLabel: turnoLabel,
     cantidad: reports.length,
     totalOfrecidas: reports.reduce((s, r) => s + (r.resumen.totalOfrecidas || 0), 0),
     totalContestadas: reports.reduce((s, r) => s + (r.resumen.totalContestadas || 0), 0),
     totalAbandonadas: reports.reduce((s, r) => s + (r.resumen.totalAbandonadas || 0), 0),
-    reportIds: reports.map(r => ({ id: r.id, token: r.token, fecha: r.fecha })),
+    reportIds: reports.map(r => ({ id: r.id, token: r.token, fechaGuardado: r.fechaGuardado })),
   };
 }
 
@@ -805,19 +841,117 @@ function DistritoRow({ d, maxSec, rank, variant }) {
 function ViewHistorial() {
   const [history, setHistory] = useState(getReportHistory());
   const [filterTurno, setFilterTurno] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
 
+  // Recargar historial al montar y cuando cambia localStorage
   useEffect(() => {
-    setHistory(getReportHistory());
+    const refreshHistory = () => setHistory(getReportHistory());
+    refreshHistory();
+    
+    // Escuchar cambios en localStorage desde otras pestañas
+    window.addEventListener("storage", refreshHistory);
+    
+    // Polling para detectar cambios en la misma pestaña
+    const interval = setInterval(refreshHistory, 2000);
+    
+    return () => {
+      window.removeEventListener("storage", refreshHistory);
+      clearInterval(interval);
+    };
   }, []);
 
-  const turnos = [...new Set(history.map(r => r.turno.fecha))].filter(Boolean).sort().reverse();
-  const filteredReports = filterTurno ? history.filter(r => r.turno.fecha === filterTurno) : history.slice().reverse();
+  const turnos = [...new Set(history.map(r => r.turnoLabel))].filter(Boolean).sort().reverse();
+  const filteredReports = filterTurno ? history.filter(r => r.turnoLabel === filterTurno) : history.slice().reverse();
 
   if (!history.length) {
     return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } },
       React.createElement("div", { style: { fontSize: 28, marginBottom: 10 } }, "📋"),
       React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 6 } }, "Sin reportes guardados"),
       React.createElement("div", { style: { fontSize: 13 } }, "Los reportes que generes se guardarán aquí automáticamente para consulta posterior.")
+    );
+  }
+
+  // Vista del reporte detallado
+  if (selectedReport) {
+    return React.createElement("div", null,
+      React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
+          React.createElement("button", {
+            onClick: () => setSelectedReport(null),
+            style: { background: "transparent", border: "1px solid " + C.border, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 }
+          }, "← Volver al Listado"),
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
+            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
+          )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Turno"),
+            React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turnoLabel)
+          ),
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
+            React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
+          )
+        )
+      ),
+      React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
+          React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen.totalOfrecidas, accent: C.mid }),
+          React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen.totalContestadas, accent: C.green }),
+          React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen.totalAbandonadas, accent: C.red })
+        )
+      ),
+      selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
+        React.createElement("div", { style: { overflowX: "auto" } },
+          React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
+            React.createElement("thead", null,
+              React.createElement("tr", { style: { background: C.blue } },
+                ["Operador", "Ofrecidas", "Contestadas", "Abandonadas", "Disponibilidad"].map(h =>
+                  React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
+                )
+              )
+            ),
+            React.createElement("tbody", null,
+              selectedReport.datos.agentes.map((a, i) =>
+                React.createElement("tr", { key: a.nombre, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                  React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${a.disponibilidad.toFixed(1)}%`)
+                )
+              )
+            )
+          )
+        )
+      ),
+      selectedReport.datos?.despacho?.length > 0 && React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Despacho (Top 10)"),
+        React.createElement("div", { style: { overflowX: "auto" } },
+          React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
+            React.createElement("thead", null,
+              React.createElement("tr", { style: { background: C.blue } },
+                ["Distrito", "Tiempo", "Efectividad"].map(h =>
+                  React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
+                )
+              )
+            ),
+            React.createElement("tbody", null,
+              selectedReport.datos.despacho.slice(0, 10).map((d, i) =>
+                React.createElement("tr", { key: d.nombre, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                  React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, d.nombre),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontFamily: "monospace" } }, fmtSeconds(d.tiempoSec)),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: (d.efectiva/d.total)*100 >= 90 ? C.green : (d.efectiva/d.total)*100 >= 80 ? C.yellow : C.red } }, `${((d.efectiva/d.total)*100).toFixed(0)}%`)
+                )
+              )
+            )
+          )
+        )
+      )
     );
   }
 
@@ -859,22 +993,28 @@ function ViewHistorial() {
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
           React.createElement("thead", null,
             React.createElement("tr", { style: { background: C.blue } },
-              ["ID Reporte","Token","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas"].map(h =>
+              ["ID Reporte","Token","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas","Acción"].map(h =>
                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
               )
             )
           ),
           React.createElement("tbody", null,
             filteredReports.map((r, i) => {
-              const reportDate = r.fecha ? new Date(r.fecha).toLocaleString("es-ES") : "-";
+              const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleString("es-ES") : "-";
               return React.createElement("tr", { key: r.id, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                 React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700, fontFamily: "monospace", fontSize: 9, color: C.blue } }, r.id),
-                React.createElement("td", { style: { padding: "9px 12px", fontFamily: "monospace", fontSize: 9, background: "#f0f4f8", borderRadius: 4, color: C.mid, fontWeight: 600 } }, r.token),
+                React.createElement("td", { style: { padding: "9px 12px", fontFamily: "monospace", fontSize: 9, background: "#f0f4f8", borderRadius: 4, color: C.mid, fontWeight: 600, userSelect: "none" } }, r.token),
                 React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray } }, reportDate),
-                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, fontWeight: 600 } }, r.turno.fecha || "-"),
+                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, fontWeight: 600 } }, r.turnoLabel),
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, r.resumen.totalOfrecidas),
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen.totalContestadas),
-                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen.totalAbandonadas)
+                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen.totalAbandonadas),
+                React.createElement("td", { style: { padding: "9px 12px" } },
+                  React.createElement("button", {
+                    onClick: () => setSelectedReport(r),
+                    style: { background: C.blue, color: "#fff", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer" }
+                  }, "Ver Detalles")
+                )
               );
             })
           )
@@ -923,15 +1063,24 @@ function App() {
 
   const reset = () => { setFiles({ agentes: null, abandonadas: null, despacho: null }); setLoaded([]); setView("upload"); setErr(null); };
   const hasData = loaded.length > 0;
+  const lastReportIdRef = useRef(null);
 
-  // Guardar reporte cuando todos los datos estén cargados
+  // Guardar reporte cuando todos los datos estén cargados (solo una vez por turno)
   useEffect(() => {
     if (hasData && loaded.length === 3) {
       const meta = files.abandonadas?.meta || files.agentes?.meta || {};
-      const report = saveReport(files, meta);
-      if (report) console.log("Reporte guardado:", report.id);
+      const turnoLabel = generateTurnoLabel(meta);
+      
+      // Evitar guardar duplicados del mismo turno
+      const existingReports = getReportHistory().filter(r => r.turnoLabel === turnoLabel);
+      if (existingReports.length === 0 || lastReportIdRef.current !== turnoLabel) {
+        const report = saveReport(files, meta);
+        if (report) {
+          lastReportIdRef.current = turnoLabel;
+        }
+      }
     }
-  }, [hasData, loaded.length, files]);
+  }, [hasData, loaded.length]);
 
   const navItems = [
     { id: "resumen",    label: "📊 Resumen",     avail: hasData },
