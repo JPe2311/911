@@ -261,15 +261,12 @@ function detectType(text) {
   const t = normalize(text.slice(0, 2000));
   if (t.includes("llamadas por agente") || t.includes("actividad del agente")) return "agentes";
   if (t.includes("abandonadas") && t.includes("grupo de servicio")) return "abandonadas";
-  const hasInicio = t.includes("inicio despacho") || (t.includes("inicio") && t.includes("despacho"));
-  const hasDeriv = t.includes("derivacion inicio") || t.includes("derivacion") || t.includes("deriv") || t.includes("derivar");
-  const hasCreacion = t.includes("creacion tiempo") || t.includes("tiempo creacion") || t.includes("creacion") || t.includes("creacion despacho");
-  const relevant = [hasInicio, hasDeriv, hasCreacion].filter(Boolean).length;
-  if (relevant >= 2) return "despacho";
-  if (hasDeriv) return "despacho-derivacion";
-  if (hasCreacion) return "despacho-creacion";
-  if (hasInicio) return "despacho-inicio";
-  if (t.includes("centro despacho") || t.includes("asignaci")) return "despacho";
+
+  if (t.includes("tiempo inicio despacho") || t.includes("inicio despacho") || t.includes("despacho inicio")) return "despacho-inicio";
+  if (t.includes("tiempo derivacion inicio") || t.includes("derivacion inicio") || t.includes("tiempo derivacion") || t.includes("derivacion")) return "despacho-derivacion";
+  if (t.includes("tiempo creacion tiempo") || t.includes("creacion tiempo") || t.includes("tiempo creacion") || t.includes("creacion") || t.includes("creacion despacho")) return "despacho-creacion";
+
+  if (t.includes("centro despacho") || t.includes("inicio despacho") || t.includes("asignaci")) return "despacho";
   return null;
 }
 
@@ -1277,7 +1274,7 @@ function App() {
     const next = { ...files };
     const nextLoaded = [...loaded];
     for (const f of fileList) {
-      if (!f.name.endsWith(".csv")) { setErr(`"${f.name}" no es un CSV.`); continue; }
+      if (!f.name.toLowerCase().trim().endsWith(".csv")) { setErr(`"${f.name}" no es un CSV.`); continue; }
       let text;
       try { text = await f.text(); } catch (_) {
         text = await new Promise((res, rej) => {
