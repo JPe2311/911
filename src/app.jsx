@@ -34,12 +34,16 @@ function parseTimeToSeconds(str) {
   if (!str) return 0;
   str = str.trim();
   let total = 0;
-  const m = str.match(/(\d+)\s*minutos?/);
-  const s = str.match(/(\d+)\s*segundos?/);
-  if (m) total += parseInt(m[1]) * 60;
-  if (s) total += parseInt(s[1]);
-  const mmss = str.match(/^(\d+):(\d+)$/);
-  if (mmss) total = parseInt(mmss[1]) * 60 + parseInt(mmss[2]);
+  const m = str.match(/(\d+)\s*minutos?/i);
+  const s = str.match(/(\d+)\s*segundos?/i);
+  if (m) total += parseInt(m[1], 10) * 60;
+  if (s) total += parseInt(s[1], 10);
+  const parts = str.split(":").map(p => parseInt(p, 10));
+  if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+    total = parts[0] * 60 + parts[1];
+  } else if (parts.length === 3 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1]) && !Number.isNaN(parts[2])) {
+    total = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
   return total;
 }
 
@@ -165,6 +169,81 @@ function detectType(text) {
   if (t.includes("abandonadas") && t.includes("grupo de servicio")) return "abandonadas";
   if (t.includes("centro despacho") || t.includes("inicio despacho") || t.includes("asignaci")) return "despacho";
   return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  REPORT HISTORY & STORAGE
+// ════════════════════════════════════════════════════════════════════════════
+function generateReportId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 9);
+  return `RPT-${timestamp}-${random}`.toUpperCase();
+}
+
+function generateToken() {
+  let hash = 0;
+  const str = Date.now() + Math.random();
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36).substring(0, 8).toUpperCase();
+}
+
+function getReportHistory() {
+  try {
+    const stored = localStorage.getItem("sae911_reports");
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveReport(data, meta) {
+  try {
+    const history = getReportHistory();
+    const report = {
+      id: generateReportId(),
+      token: generateToken(),
+      fecha: new Date().toISOString(),
+      turno: {
+        fecha: meta.fechaDesde,
+        horaDesde: meta.horaDesde,
+        horaHasta: meta.horaHasta,
+      },
+      resumen: {
+        totalOfrecidas: meta.totalOfrecidas || 0,
+        totalContestadas: meta.totalContestadas || 0,
+        totalAbandonadas: meta.totalAbanCabina || 0,
+      },
+      data: data,
+    };
+    history.push(report);
+    localStorage.setItem("sae911_reports", JSON.stringify(history));
+    return report;
+  } catch (e) {
+    console.error("Error saving report:", e);
+    return null;
+  }
+}
+
+function getReportsByTurno(fechaDesde) {
+  const history = getReportHistory();
+  return history.filter(r => r.turno.fecha === fechaDesde);
+}
+
+function getTurnoStats(fechaDesde) {
+  const reports = getReportsByTurno(fechaDesde);
+  if (reports.length === 0) return null;
+  return {
+    turno: fechaDesde,
+    cantidad: reports.length,
+    totalOfrecidas: reports.reduce((s, r) => s + (r.resumen.totalOfrecidas || 0), 0),
+    totalContestadas: reports.reduce((s, r) => s + (r.resumen.totalContestadas || 0), 0),
+    totalAbandonadas: reports.reduce((s, r) => s + (r.resumen.totalAbandonadas || 0), 0),
+    reportIds: reports.map(r => ({ id: r.id, token: r.token, fecha: r.fecha })),
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -651,7 +730,7 @@ function ViewOperadores({ data }) {
               ),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoConectado),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace" } },
-                React.createElement("span", { style: { color: a.tiempoAusente > "02:00:00" ? C.red : "#334155", fontWeight: a.tiempoAusente > "02:00:00" ? 700 : 400 } }, a.tiempoAusente)
+                React.createElement("span", { style: { color: parseTimeToSeconds(a.tiempoAusente) > 7200 ? C.red : "#334155", fontWeight: parseTimeToSeconds(a.tiempoAusente) > 7200 ? 700 : 400 } }, a.tiempoAusente)
               ),
               React.createElement("td", { style: { padding: "9px 12px" } },
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
@@ -721,12 +800,97 @@ function DistritoRow({ d, maxSec, rank, variant }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  VIEW: HISTORIAL (reportes guardados)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewHistorial() {
+  const [history, setHistory] = useState(getReportHistory());
+  const [filterTurno, setFilterTurno] = useState(null);
+
+  useEffect(() => {
+    setHistory(getReportHistory());
+  }, []);
+
+  const turnos = [...new Set(history.map(r => r.turno.fecha))].filter(Boolean).sort().reverse();
+  const filteredReports = filterTurno ? history.filter(r => r.turno.fecha === filterTurno) : history.slice().reverse();
+
+  if (!history.length) {
+    return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } },
+      React.createElement("div", { style: { fontSize: 28, marginBottom: 10 } }, "📋"),
+      React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 6 } }, "Sin reportes guardados"),
+      React.createElement("div", { style: { fontSize: 13 } }, "Los reportes que generes se guardarán aquí automáticamente para consulta posterior.")
+    );
+  }
+
+  return React.createElement("div", null,
+    React.createElement(SectionTitle, { num: "5", title: "Historial de Reportes", sub: `${history.length} reportes guardados` }),
+
+    React.createElement(Card, { style: { marginBottom: 20 } },
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Filtrar por Turno"),
+      React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+        React.createElement("button", {
+          onClick: () => setFilterTurno(null),
+          style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === null ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === null ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === null ? C.blue : C.gray }
+        }, `Todos (${history.length})`),
+        turnos.map(turno =>
+          React.createElement("button", {
+            key: turno,
+            onClick: () => setFilterTurno(turno),
+            style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === turno ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === turno ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === turno ? C.blue : C.gray }
+          }, turno)
+        )
+      )
+    ),
+
+    filterTurno && React.createElement(Card, { style: { marginBottom: 20 } },
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, `Estadísticas: ${filterTurno}`),
+      (() => {
+        const stats = getTurnoStats(filterTurno);
+        return stats ? React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 } },
+          React.createElement(StatKpi, { label: "Reportes", value: stats.cantidad, accent: C.blue }),
+          React.createElement(StatKpi, { label: "Total Ofrecidas", value: stats.totalOfrecidas, accent: C.mid }),
+          React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalContestadas, accent: C.green }),
+          React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAbandonadas, accent: C.red })
+        ) : null;
+      })()
+    ),
+
+    React.createElement(Card, null,
+      React.createElement("div", { style: { overflowX: "auto" } },
+        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
+          React.createElement("thead", null,
+            React.createElement("tr", { style: { background: C.blue } },
+              ["ID Reporte","Token","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas"].map(h =>
+                React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
+              )
+            )
+          ),
+          React.createElement("tbody", null,
+            filteredReports.map((r, i) => {
+              const reportDate = r.fecha ? new Date(r.fecha).toLocaleString("es-ES") : "-";
+              return React.createElement("tr", { key: r.id, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700, fontFamily: "monospace", fontSize: 9, color: C.blue } }, r.id),
+                React.createElement("td", { style: { padding: "9px 12px", fontFamily: "monospace", fontSize: 9, background: "#f0f4f8", borderRadius: 4, color: C.mid, fontWeight: 600 } }, r.token),
+                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray } }, reportDate),
+                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, fontWeight: 600 } }, r.turno.fecha || "-"),
+                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, r.resumen.totalOfrecidas),
+                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen.totalContestadas),
+                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen.totalAbandonadas)
+              );
+            })
+          )
+        )
+      )
+    )
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
   const [files, setFiles]   = useState({ agentes: null, abandonadas: null, despacho: null });
   const [loaded, setLoaded] = useState([]);
-  const [view, setView]     = useState("upload");  // upload | resumen | horas | operadores | despacho
+  const [view, setView]     = useState("upload");  // upload | resumen | horas | operadores | despacho | historial
   const [err, setErr]       = useState(null);
 
   const handleFiles = useCallback(async (fileList) => {
@@ -760,11 +924,21 @@ function App() {
   const reset = () => { setFiles({ agentes: null, abandonadas: null, despacho: null }); setLoaded([]); setView("upload"); setErr(null); };
   const hasData = loaded.length > 0;
 
+  // Guardar reporte cuando todos los datos estén cargados
+  useEffect(() => {
+    if (hasData && loaded.length === 3) {
+      const meta = files.abandonadas?.meta || files.agentes?.meta || {};
+      const report = saveReport(files, meta);
+      if (report) console.log("Reporte guardado:", report.id);
+    }
+  }, [hasData, loaded.length, files]);
+
   const navItems = [
     { id: "resumen",    label: "📊 Resumen",     avail: hasData },
     { id: "horas",      label: "📞 Por Hora",    avail: !!files.abandonadas },
     { id: "operadores", label: "👤 Operadores",  avail: !!files.agentes },
     { id: "despacho",   label: "🚓 Despacho",    avail: !!files.despacho },
+    { id: "historial",  label: "📋 Historial",   avail: true },
   ];
 
   const meta = files.abandonadas?.meta || files.agentes?.meta || {};
@@ -855,6 +1029,7 @@ function App() {
       view === "horas"      && React.createElement(ViewHoras,      { data: files }),
       view === "operadores" && React.createElement(ViewOperadores, { data: files }),
       view === "despacho"   && React.createElement(ViewDespacho,   { data: files }),
+      view === "historial"  && React.createElement(ViewHistorial),
     )
   );
 }
