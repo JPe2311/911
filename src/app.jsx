@@ -89,9 +89,9 @@ function parseAgentes(raw) {
     ofrecidas: 2,
     contestadas: 3,
     abandonadas: 5,
-    tiempoConectado: 8,
-    tiempoAusente: 10,
-    disponibilidad: 13,
+    tiempoConectado: 10,
+    tiempoAusente: 11,
+    disponibilidad: 14,
   };
   let headerFound = false;
 
