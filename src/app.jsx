@@ -110,15 +110,17 @@ function parseAgentes(raw) {
       continue;
     }
 
-    if (!headerFound && first.toLowerCase().includes("agente")) {
+    if (!headerFound && cols.some(h => /agente/i.test(h)) && cols.some(h => /ofrec/i.test(h))) {
       headerFound = true;
       cols.forEach((h, j) => {
         const key = (h || "").toLowerCase();
         if (key.includes("ofrec")) idx.ofrecidas = j;
         if (key.includes("contest")) idx.contestadas = j;
-        if (key.includes("aband") && key.includes("cab")) idx.abandonadas = j;
-        if (key.includes("tiempo") && key.includes("conect")) idx.tiempoConectado = j;
-        if (key.includes("tiempo") && key.includes("ausent")) idx.tiempoAusente = j;
+        if (/aband/i.test(key)) idx.abandonadas = j;
+        if (/voz preparada/i.test(key)) idx.vozPreparada = j;
+        if (/voz no preparada/i.test(key)) idx.vozNoPreparada = j;
+        if (/tiempo.*conect|t\.?\s*conect/i.test(key)) idx.tiempoConectado = j;
+        if (/tiempo.*ausent|t\.?\s*ausent/i.test(key)) idx.tiempoAusente = j;
         if (key.includes("disponib")) idx.disponibilidad = j;
       });
       continue;
