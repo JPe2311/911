@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SAE 911 — Sistema de Informes</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚨</text></svg>" />
+
   <!-- React + ReactDOM -->
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
@@ -12,6 +13,27 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <!-- Chart.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <!-- Firebase: inicialización (ESM module) -->
+  <!-- firebase-config.js inyecta window.FIREBASE_CONFIG (generado por build.sh en Vercel) -->
+  <script src="src/firebase-config.js" onerror="console.warn('firebase-config.js no encontrado — modo sin Firebase')"></script>
+
+  <script type="module">
+    // Solo inicializa si el config está disponible
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) {
+      const { initializeApp }   = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+      const { getFirestore }    = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const { getAuth }         = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+
+      const app     = initializeApp(window.FIREBASE_CONFIG);
+      window.db     = getFirestore(app);
+      window.auth   = getAuth(app);
+      console.log("✓ Firebase inicializado:", window.FIREBASE_CONFIG.projectId);
+    } else {
+      console.warn("⚠ Firebase no configurado — usando almacenamiento local");
+    }
+  </script>
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f0f4f8; color: #1e293b; }
