@@ -83,32 +83,69 @@ function parseAgentes(raw) {
   const lines = parseLines(raw);
   const agents = [];
   let meta = {};
+  const idx = {
+    nombre: 0,
+    codigo: 1,
+    ofrecidas: 2,
+    contestadas: 3,
+    abandonadas: 5,
+    tiempoConectado: 8,
+    tiempoAusente: 10,
+    disponibilidad: 13,
+  };
+  let headerFound = false;
+
   for (let i = 0; i < lines.length; i++) {
     const cols = parseSemicolon(lines[i]);
-    if (cols[0] === "Fecha del informe:" && cols[1]) meta.fecha = cols[1];
-    if (cols[0] === "Rango del informe:" && cols[1]) {
+    if (!cols.length) continue;
+    const first = (cols[0] || "").trim();
+
+    if (first === "Fecha del informe:" && cols[1]) {
+      meta.fecha = cols[1];
+      continue;
+    }
+    if (first === "Rango del informe:" && cols[1]) {
       meta.fechaDesde = cols[1]; meta.fechaHasta = cols[2];
       meta.horaDesde = cols[3]; meta.horaHasta = cols[4];
+      continue;
     }
-    if (cols[1] && cols[1].startsWith("SG_") && cols[0] && cols[0] !== "Agente") {
-      const nombre = cols[0];
+
+    if (!headerFound && first.toLowerCase().includes("agente")) {
+      headerFound = true;
+      cols.forEach((h, j) => {
+        const key = (h || "").toLowerCase();
+        if (key.includes("ofrec")) idx.ofrecidas = j;
+        if (key.includes("contest")) idx.contestadas = j;
+        if (key.includes("aband") && key.includes("cab")) idx.abandonadas = j;
+        if (key.includes("tiempo") && key.includes("conect")) idx.tiempoConectado = j;
+        if (key.includes("tiempo") && key.includes("ausent")) idx.tiempoAusente = j;
+        if (key.includes("disponib")) idx.disponibilidad = j;
+      });
+      continue;
+    }
+
+    if (cols[1] && cols[1].startsWith("SG_") && first && first !== "Agente") {
+      const nombre = first;
       if (nombre === "Total" || nombre === "Promedio") continue;
       agents.push({
         nombre,
-        ofrecidas:        parseInt(cols[2])  || 0,
-        contestadas:      parseInt(cols[3])  || 0,
-        abandonadas:      parseInt(cols[5])  || 0,
-        tiempoConectado:  cols[8]  || "0:00:00",
-        tiempoAusente:    cols[10] || "0:00:00",
-        disponibilidad:   parseFloat((cols[13] || "0").replace(",", ".")) || 0,
+        ofrecidas:        parseInt(cols[idx.ofrecidas])  || 0,
+        contestadas:      parseInt(cols[idx.contestadas])  || 0,
+        abandonadas:      parseInt(cols[idx.abandonadas])  || 0,
+        tiempoConectado:  cols[idx.tiempoConectado]  || "0:00:00",
+        tiempoAusente:    cols[idx.tiempoAusente] || "0:00:00",
+        disponibilidad:   parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
       });
+      continue;
     }
-    if (cols[0] === "Total" && cols[1] === "-") {
-      meta.totalOfrecidas   = parseInt(cols[2]) || 0;
-      meta.totalContestadas = parseInt(cols[3]) || 0;
-      meta.totalAbanCabina  = parseInt(cols[5]) || 0;
+
+    if (first === "Total" && cols[1] === "-") {
+      meta.totalOfrecidas   = parseInt(cols[idx.ofrecidas]) || parseInt(cols[2]) || 0;
+      meta.totalContestadas = parseInt(cols[idx.contestadas]) || parseInt(cols[3]) || 0;
+      meta.totalAbanCabina  = parseInt(cols[idx.abandonadas]) || parseInt(cols[5]) || 0;
     }
   }
+
   return { agents, meta };
 }
 
