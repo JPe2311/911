@@ -1139,6 +1139,11 @@ function App() {
     }
   }, [loaded.length, user]);
 
+  const handleLogin = useCallback(async () => {
+    const u = await signInWithGoogle();
+    if (u) setUser(u);
+  }, []);
+
   const handleFiles = useCallback(async (fileList) => {
     setErr(null);
     const next = { ...files };
@@ -1223,6 +1228,8 @@ function App() {
         ),
         hasData && React.createElement("button", { onClick: reset, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer" } }, "↺ Reset"),
         hasData && React.createElement("button", { onClick: () => window.print(), className: "no-print", style: { background: C.mid, border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "🖨 Imprimir"),
+
+        getAuth() && !user && React.createElement("button", { onClick: handleLogin, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "Ingresar con Google"),
 
         // Avatar / logout
         user && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginLeft: 8 } },
