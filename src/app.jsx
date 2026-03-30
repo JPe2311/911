@@ -233,7 +233,11 @@ function generateTurnoLabel(meta) {
 // ════════════════════════════════════════════════════════════════════════════
 async function saveReportToFirestore(files, meta, user) {
   const db = getDB();
-  if (!db || !user?.uid) return null;
+  console.log("saveReportToFirestore db:", db, "user:", user);
+  if (!db || !user?.uid) {
+    console.error("Firebase Firestore no disponible o usuario no definido", { db, user });
+    return null;
+  }
 
   const uid = user.uid;
   const userEmail = user.email || null;
@@ -343,14 +347,16 @@ async function deleteReportFromFirestore(firestoreId) {
 // ════════════════════════════════════════════════════════════════════════════
 async function signInWithGoogle() {
   const auth = getAuth();
+  console.log("signInWithGoogle auth:", auth);
   if (!auth) { console.error("Firebase Auth no disponible"); return null; }
   try {
     const { signInWithPopup, GoogleAuthProvider } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
+    console.log("signInWithGoogle user:", result.user);
     return result.user;
   } catch (e) {
-    console.error("✗ Error en login:", e);
+    console.error("✗ Error en login con Google:", e);
     return null;
   }
 }
@@ -693,18 +699,21 @@ function ViewResumen({ data }) {
     gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Inicio → Despacho"),
-        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-1", value: gaugeData.tiempoInicioDespacho, max: getGaugeMax(gaugeData.tiempoInicioDespacho, 120), color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) })),
-        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) } }, fmtSeconds(gaugeData.tiempoInicioDespacho))
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
+          React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) } }, fmtSeconds(gaugeData.tiempoInicioDespacho))
+        )
       ),
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Derivación → Inicio"),
-        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-2", value: gaugeData.tiempoDerivacionInicio, max: getGaugeMax(gaugeData.tiempoDerivacionInicio, 90), color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) })),
-        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) } }, fmtSeconds(gaugeData.tiempoDerivacionInicio))
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
+          React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) } }, fmtSeconds(gaugeData.tiempoDerivacionInicio))
+        )
       ),
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Creación → Despacho"),
-        React.createElement("div", { style: { height: 120, position: "relative" } }, React.createElement(ChartGauge, { id: "gauge-3", value: gaugeData.tiempoCreacionDespacho, max: getGaugeMax(gaugeData.tiempoCreacionDespacho, 180), color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) })),
-        React.createElement("div", { style: { marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) } }, fmtSeconds(gaugeData.tiempoCreacionDespacho))
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
+          React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) } }, fmtSeconds(gaugeData.tiempoCreacionDespacho))
+        )
       )
     ),
     despData && React.createElement(Card, { style: { marginBottom: 16 } },

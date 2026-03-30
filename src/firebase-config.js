@@ -8,3 +8,5 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "237914660310",
   appId: "1:237914660310:web:5400c04e1b1bd3071d9877"
 };
+
+console.log("✓ firebase-config.js cargado:", window.FIREBASE_CONFIG?.projectId || "sin config");
