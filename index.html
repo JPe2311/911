@@ -29,6 +29,7 @@
       window.db     = getFirestore(app);
       window.auth   = getAuth(app);
       console.log("✓ Firebase inicializado:", window.FIREBASE_CONFIG.projectId);
+      console.log("✓ Firebase DB:", window.db, "Auth:", window.auth);
     } else {
       console.warn("⚠ Firebase no configurado — usando almacenamiento local");
     }
