@@ -55,11 +55,11 @@ function parseTimeToSeconds(str) {
 }
 
 function fmtSeconds(sec) {
-  if (!sec || sec === 0) return "0 seg.";
-  if (sec < 60) return `${sec} seg.`;
+  if (!sec || sec === 0) return `0\"`;
+  if (sec < 60) return `${sec}\"`;
   const m = Math.floor(sec / 60);
   const s = sec % 60;
-  return s > 0 ? `${m} min. ${s} seg.` : `${m} min.`;
+  return s > 0 ? `${m}' ${s}\"` : `${m}'`;
 }
 
 function parseSemicolon(line) {
