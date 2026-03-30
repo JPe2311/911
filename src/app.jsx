@@ -523,7 +523,8 @@ function LoginPanel({ onLogin, onSkip }) {
     },
       React.createElement("div", { style: { fontSize: 44, marginBottom: 12 } }, "🚨"),
       React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy, marginBottom: 4 } }, "SAE 911"),
-      React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 32 } }, "Sistema de Informes — DCGyC"),
+      React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 8 } }, "Sistema de Informes — DCGyC"),
+      React.createElement("div", { style: { marginBottom: 24, fontSize: 14, color: C.navy, fontWeight: 700 } }, "Inicia sesión con Google para guardar tus informes en la nube con tu correo."),
 
       React.createElement("button", {
         onClick: handleGoogle,
@@ -1290,6 +1291,7 @@ function App() {
           React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "🚨"),
           React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, marginBottom: 6 } }, "Sistema de Informes SAE 911"),
           React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los CSV exportados del sistema para generar el informe automáticamente"),
+          !user && getAuth() && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.yellow, fontWeight: 700 } }, "⚠️ Inicia sesión con Google para que tu correo quede registrado en Firestore."),
           user && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.green, fontWeight: 600 } }, `✓ Sesión activa: ${user.displayName || user.email} — los informes se sincronizan en la nube`)
         ),
         React.createElement(UploadZone, { onFiles: handleFiles, loaded }),
