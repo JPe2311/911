@@ -231,9 +231,14 @@ function generateTurnoLabel(meta) {
 // ════════════════════════════════════════════════════════════════════════════
 //  FIRESTORE HELPERS
 // ════════════════════════════════════════════════════════════════════════════
-async function saveReportToFirestore(files, meta, uid) {
+async function saveReportToFirestore(files, meta, user) {
   const db = getDB();
-  if (!db || !uid) return null;
+  if (!db || !user?.uid) return null;
+
+  const uid = user.uid;
+  const userEmail = user.email || null;
+  const userDisplayName = user.displayName || null;
+  const userProviderId = user.providerData?.[0]?.providerId || null;
 
   const agentesData = files?.agentes;
   const abandonadasData = files?.abandonadas;
@@ -283,6 +288,9 @@ async function saveReportToFirestore(files, meta, uid) {
     // También guardar en historial CSV
     await addDoc(collection(db, "historial_csv"), {
       uid,
+      userEmail,
+      userDisplayName,
+      userProviderId,
       turnoLabel,
       archivos: [
         agentesData    ? { nombre: "agentes",     tipo: "agentes",     filas: agentesData.agents?.length || 0 } : null,
@@ -1113,12 +1121,45 @@ function App() {
 
   // Escuchar cambios de auth
   useEffect(() => {
+    let unsub = null;
+    let intervalId = null;
+    let timeoutId = null;
+
+    const subscribeAuth = async (auth) => {
+      try {
+        const { onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+        unsub = onAuthStateChanged(auth, u => setUser(u || null));
+      } catch (e) {
+        console.error("✗ Error inicializando auth:", e);
+        setUser(null);
+      }
+    };
+
     const auth = getAuth();
-    if (!auth) { setUser(null); return; }
-    import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js").then(({ onAuthStateChanged }) => {
-      const unsub = onAuthStateChanged(auth, u => setUser(u || null));
-      return () => unsub();
-    });
+    if (auth) {
+      subscribeAuth(auth);
+    } else {
+      intervalId = window.setInterval(() => {
+        const nextAuth = getAuth();
+        if (nextAuth) {
+          window.clearInterval(intervalId);
+          subscribeAuth(nextAuth);
+        }
+      }, 250);
+
+      timeoutId = window.setTimeout(() => {
+        if (!getAuth()) {
+          window.clearInterval(intervalId);
+          setUser(null);
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      if (typeof unsub === "function") unsub();
+    };
   }, []);
 
   // Auto-guardar informe cuando los 3 archivos están cargados
@@ -1130,7 +1171,7 @@ function App() {
     lastSavedTurno.current = turnoLabel;
 
     if (user) {
-      saveReportToFirestore(files, meta, user.uid).then(r => {
+      saveReportToFirestore(files, meta, user).then(r => {
         if (r) console.log("✓ Guardado en Firestore:", r.id);
       });
     } else {
