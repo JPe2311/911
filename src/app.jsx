@@ -331,6 +331,7 @@ async function saveReportToFirestore(files, meta, user) {
     // También guardar en historial CSV
     await addDoc(collection(db, "historial_csv"), {
       uid,
+      usuario: userDisplayName || userEmail || uid,
       userEmail,
       userDisplayName,
       userProviderId,
