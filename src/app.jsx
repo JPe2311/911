@@ -158,15 +158,15 @@ function parseDespacho(raw) {
     .replace(/\s+/g, " ");
 
   const headerCols = parseSemicolon(lines[0]).map(h => normalize(h));
-  const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva") || h.includes("inicio") || h.includes("centro") || h.includes("deriv"));
+  const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva") || h.includes("inicio") || h.includes("centro") || h.includes("deriv") || h.includes("creacion") || h.includes("asignacion"));
 
   const idx = {
     nombre: 0,
     tiempo1: 1,
     tiempo2: 2,
     tiempo3: 3,
-    total: 4,
-    efectiva: 5,
+    total: -1,
+    efectiva: -1,
   };
 
   if (hasHeader) {
@@ -174,7 +174,7 @@ function parseDespacho(raw) {
       if (h.includes("distrito") || h.includes("centro") || h.includes("nombre")) idx.nombre = i;
       if (h.includes("inicio") && h.includes("despacho")) idx.tiempo1 = i;
       if (h.includes("deriv") && h.includes("inicio")) idx.tiempo2 = i;
-      if (h.includes("creaci") && (h.includes("despacho") || h.includes("tiempo"))) idx.tiempo3 = i;
+      if ((h.includes("creaci") || h.includes("creacion")) && (h.includes("despacho") || h.includes("tiempo"))) idx.tiempo3 = i;
       if (h.includes("total")) idx.total = i;
       if (h.includes("efectiva")) idx.efectiva = i;
     });
@@ -188,13 +188,13 @@ function parseDespacho(raw) {
     const tiempo1Str = cols[idx.tiempo1] || "0:00";
     const tiempo2Str = cols[idx.tiempo2] || "0:00";
     const tiempo3Str = cols[idx.tiempo3] || "0:00";
-    const total = parseInt(cols[idx.total]) || 0;
-    const efectiva = parseInt(cols[idx.efectiva]) || 0;
+    const total = idx.total >= 0 ? parseInt(cols[idx.total]) || 0 : 0;
+    const efectiva = idx.efectiva >= 0 ? parseInt(cols[idx.efectiva]) || 0 : 0;
     const tiempo1Sec = parseTimeToSeconds(tiempo1Str);
     const tiempo2Sec = parseTimeToSeconds(tiempo2Str);
     const tiempo3Sec = parseTimeToSeconds(tiempo3Str);
     const tiempoSec = tiempo1Sec;
-    if (nombre && total > 0) {
+    if (nombre && (tiempo1Sec || tiempo2Sec || tiempo3Sec || total || efectiva)) {
       distritos.push({
         nombre,
         tiempo1Str,
@@ -207,7 +207,7 @@ function parseDespacho(raw) {
         tiempoSec,
         total,
         efectiva,
-        noEfectiva: total - efectiva,
+        noEfectiva: Math.max(0, total - efectiva),
       });
     }
   }
