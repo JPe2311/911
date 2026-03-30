@@ -187,7 +187,7 @@ function parseAbandonadas(raw) {
   return { intervals, totals, meta };
 }
 
-function parseDespacho(raw) {
+function parseDespacho(raw, type = "despacho") {
   const cleaned = raw.replace(/^\uFEFF/, "")
     .replace(/AsignaciÃ³n/g, "Asignación")
     .replace(/Ã³/g, "ó").replace(/Ã©/g, "é").replace(/Ãº/g, "ú")
@@ -203,7 +203,7 @@ function parseDespacho(raw) {
   const headerCols = parseSemicolon(lines[0]).map(h => normalize(h));
   const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva") || h.includes("inicio") || h.includes("centro") || h.includes("deriv") || h.includes("creacion") || h.includes("asignacion"));
 
-  const idx = { nombre: 0, tiempo1: 1, tiempo2: 2, tiempo3: 3, total: -1, efectiva: -1 };
+  const idx = { nombre: 0, tiempo1: -1, tiempo2: -1, tiempo3: -1, total: -1, efectiva: -1 };
 
   if (hasHeader) {
     headerCols.forEach((h, i) => {
@@ -216,20 +216,25 @@ function parseDespacho(raw) {
     });
   }
 
+  if (type === "despacho-inicio" && idx.tiempo1 < 0) idx.tiempo1 = 1;
+  if (type === "despacho-derivacion" && idx.tiempo2 < 0) idx.tiempo2 = 1;
+  if (type === "despacho-creacion" && idx.tiempo3 < 0) idx.tiempo3 = 1;
+  if (type === "despacho" && idx.tiempo1 < 0) idx.tiempo1 = 1;
+
   const distritos = [];
   for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
     const cols = parseSemicolon(lines[i]);
     if (!cols[idx.nombre] || cols[idx.nombre].startsWith("Centro") || cols[idx.nombre] === "") continue;
     const nombre = cols[idx.nombre] || "";
-    const tiempo1Str = cols[idx.tiempo1] || "0:00";
-    const tiempo2Str = cols[idx.tiempo2] || "0:00";
-    const tiempo3Str = cols[idx.tiempo3] || "0:00";
+    const tiempo1Str = idx.tiempo1 >= 0 ? cols[idx.tiempo1] || "0:00" : "0:00";
+    const tiempo2Str = idx.tiempo2 >= 0 ? cols[idx.tiempo2] || "0:00" : "0:00";
+    const tiempo3Str = idx.tiempo3 >= 0 ? cols[idx.tiempo3] || "0:00" : "0:00";
     const total = idx.total >= 0 ? parseInt(cols[idx.total]) || 0 : 0;
     const efectiva = idx.efectiva >= 0 ? parseInt(cols[idx.efectiva]) || 0 : 0;
     const tiempo1Sec = parseTimeToSeconds(tiempo1Str);
     const tiempo2Sec = parseTimeToSeconds(tiempo2Str);
     const tiempo3Sec = parseTimeToSeconds(tiempo3Str);
-    const tiempoSec = tiempo1Sec;
+    const tiempoSec = tiempo1Sec || tiempo2Sec || tiempo3Sec;
     if (nombre && (tiempo1Sec || tiempo2Sec || tiempo3Sec || total || efectiva)) {
       distritos.push({ nombre, tiempo1Str, tiempo2Str, tiempo3Str, tiempo1Sec, tiempo2Sec, tiempo3Sec, tiempoStr: tiempo1Str, tiempoSec, total, efectiva, noEfectiva: Math.max(0, total - efectiva) });
     }
@@ -237,12 +242,41 @@ function parseDespacho(raw) {
   return distritos;
 }
 
+function mergeDespachoData(existing = [], incoming = []) {
+  const map = new Map();
+  const keyOf = name => (name || "").trim().toLowerCase();
+  existing.forEach(item => map.set(keyOf(item.nombre), { ...item }));
+  incoming.forEach(item => {
+    const key = keyOf(item.nombre);
+    const current = map.get(key) || {};
+    map.set(key, { ...current, ...item, nombre: current.nombre || item.nombre });
+  });
+  return Array.from(map.values());
+}
+
 function detectType(text) {
-  const t = text.slice(0, 600).toLowerCase();
+  const normalize = str => str.toLowerCase().trim()
+    .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
+    .replace(/[\s\/\-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
+  const t = normalize(text.slice(0, 2000));
   if (t.includes("llamadas por agente") || t.includes("actividad del agente")) return "agentes";
   if (t.includes("abandonadas") && t.includes("grupo de servicio")) return "abandonadas";
-  if (t.includes("centro despacho") || t.includes("inicio despacho") || t.includes("asignaci")) return "despacho";
+  const hasInicio = t.includes("inicio despacho") || (t.includes("inicio") && t.includes("despacho"));
+  const hasDeriv = t.includes("derivacion inicio") || t.includes("derivacion") || t.includes("deriv") || t.includes("derivar");
+  const hasCreacion = t.includes("creacion tiempo") || t.includes("tiempo creacion") || t.includes("creacion") || t.includes("creacion despacho");
+  const relevant = [hasInicio, hasDeriv, hasCreacion].filter(Boolean).length;
+  if (relevant >= 2) return "despacho";
+  if (hasDeriv) return "despacho-derivacion";
+  if (hasCreacion) return "despacho-creacion";
+  if (hasInicio) return "despacho-inicio";
+  if (t.includes("centro despacho") || t.includes("asignaci")) return "despacho";
   return null;
+}
+
+function hasRequiredUploads(loaded) {
+  return loaded.includes("agentes") && loaded.includes("abandonadas") && (
+    loaded.includes("despacho") || (loaded.includes("despacho-inicio") && loaded.includes("despacho-derivacion") && loaded.includes("despacho-creacion"))
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -617,9 +651,11 @@ function LoginPanel({ onLogin, onSkip }) {
 function UploadZone({ onFiles, loaded }) {
   const [drag, setDrag] = useState(false);
   const types = {
-    agentes:     { label: "Llamadas por Agente",    color: C.mid,   bg: C.light },
-    abandonadas: { label: "Abandonadas por Hora",   color: C.red,   bg: C.redBg },
-    despacho:    { label: "Tiempo Inicio Despacho", color: C.green, bg: C.greenBg },
+    agentes:            { label: "Llamadas por Agente",     color: C.mid,   bg: C.light },
+    abandonadas:        { label: "Abandonadas por Hora",    color: C.red,   bg: C.redBg },
+    "despacho-inicio": { label: "Tiempo Inicio Despacho",  color: C.green, bg: C.greenBg },
+    "despacho-derivacion": { label: "Tiempo Derivación Inicio", color: C.orange, bg: C.orBg },
+    "despacho-creacion": { label: "Tiempo Creación Tiempo", color: C.blue,  bg: C.bg },
   };
   return React.createElement("div", {
     onDragOver: e => { e.preventDefault(); setDrag(true); },
@@ -633,7 +669,7 @@ function UploadZone({ onFiles, loaded }) {
     React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 20 } }, "o hacé clic para seleccionarlos — se detectan automáticamente"),
     React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } },
       Object.entries(types).map(([key, { label, color, bg }]) => {
-        const done = loaded.includes(key);
+        const done = loaded.includes(key) || (key.startsWith("despacho") && loaded.includes("despacho"));
         return React.createElement("span", { key, style: { background: done ? bg : "#f1f5f9", color: done ? color : C.gray, border: `1.5px solid ${done ? color : C.border}`, borderRadius: 99, padding: "5px 14px", fontSize: 11, fontWeight: 700, transition: "all .2s" } }, done ? `✓ ${label}` : `○ ${label}`);
       })
     )
@@ -1215,7 +1251,7 @@ function App() {
 
   // Auto-guardar informe cuando los 3 archivos están cargados
   useEffect(() => {
-    if (loaded.length !== 3) return;
+    if (!hasRequiredUploads(loaded)) return;
     const meta = files.abandonadas?.meta || files.agentes?.meta || {};
     const turnoLabel = generateTurnoLabel(meta);
     if (lastSavedTurno.current === turnoLabel) return;
@@ -1249,11 +1285,18 @@ function App() {
           r.readAsText(f, "latin-1");
         });
       }
-      const type = detectType(text);
+          const type = detectType(text);
       if (!type) { setErr(`No se pudo identificar "${f.name}".`); continue; }
-      if (type === "agentes")     next.agentes     = parseAgentes(text);
-      if (type === "abandonadas") next.abandonadas = parseAbandonadas(text);
-      if (type === "despacho")    next.despacho    = parseDespacho(text);
+      if (type === "agentes") {
+        next.agentes = parseAgentes(text);
+      } else if (type === "abandonadas") {
+        next.abandonadas = parseAbandonadas(text);
+      } else if (type === "despacho") {
+        next.despacho = mergeDespachoData(next.despacho, parseDespacho(text, "despacho"));
+        ["despacho-inicio", "despacho-derivacion", "despacho-creacion"].forEach(key => { if (!nextLoaded.includes(key)) nextLoaded.push(key); });
+      } else if (type.startsWith("despacho-")) {
+        next.despacho = mergeDespachoData(next.despacho, parseDespacho(text, type));
+      }
       if (!nextLoaded.includes(type)) nextLoaded.push(type);
     }
     setFiles(next);
