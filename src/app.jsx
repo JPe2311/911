@@ -149,8 +149,16 @@ function parseDespacho(raw) {
   const lines = parseLines(cleaned).filter(line => line.trim() !== "");
   if (!lines.length) return [];
 
-  const headerCols = parseSemicolon(lines[0]).map(h => h.toLowerCase().trim());
-  const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva"));
+  const normalize = text => text
+    .toLowerCase()
+    .trim()
+    .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
+    .replace(/[\s\/-]+/g, " ")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ");
+
+  const headerCols = parseSemicolon(lines[0]).map(h => normalize(h));
+  const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva") || h.includes("inicio") || h.includes("centro") || h.includes("deriv"));
 
   const idx = {
     nombre: 0,
@@ -166,7 +174,7 @@ function parseDespacho(raw) {
       if (h.includes("distrito") || h.includes("centro") || h.includes("nombre")) idx.nombre = i;
       if (h.includes("inicio") && h.includes("despacho")) idx.tiempo1 = i;
       if (h.includes("deriv") && h.includes("inicio")) idx.tiempo2 = i;
-      if (h.includes("creaci") && h.includes("despacho")) idx.tiempo3 = i;
+      if (h.includes("creaci") && (h.includes("despacho") || h.includes("tiempo"))) idx.tiempo3 = i;
       if (h.includes("total")) idx.total = i;
       if (h.includes("efectiva")) idx.efectiva = i;
     });
