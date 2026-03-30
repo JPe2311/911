@@ -299,6 +299,7 @@ async function saveReportToFirestore(files, meta, user) {
     id:            generateReportId(),
     token:         generateToken(),
     uid:           uid,
+    usuario:       userDisplayName || userEmail || uid,
     fechaGuardado: new Date().toISOString(),
     turnoLabel:    turnoLabel,
     turno: {
@@ -1128,7 +1129,7 @@ function ViewHistorial({ user }) {
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
           React.createElement("thead", null,
             React.createElement("tr", { style: { background: C.blue } },
-              ["ID Reporte","Token","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas","Acciones"].map(h =>
+              ["ID Reporte","Usuario","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas","Acciones"].map(h =>
                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
               )
             )
@@ -1138,7 +1139,7 @@ function ViewHistorial({ user }) {
               const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleString("es-ES") : "-";
               return React.createElement("tr", { key: r.id || i, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                 React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700, fontFamily: "monospace", fontSize: 9, color: C.blue } }, r.id),
-                React.createElement("td", { style: { padding: "9px 12px", fontFamily: "monospace", fontSize: 9, background: "#f0f4f8", color: C.mid, fontWeight: 600 } }, r.token),
+                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray, fontWeight: 600 } }, r.usuario || r.userDisplayName || r.userEmail || r.uid || "-"),
                 React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray } }, reportDate),
                 React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, fontWeight: 600 } }, r.turnoLabel),
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, r.resumen?.totalOfrecidas),
