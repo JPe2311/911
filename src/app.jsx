@@ -253,19 +253,6 @@ function parseDespacho(raw, type = "despacho") {
   return distritos;
 }
 
-function mergeDespachoData(existing, incoming) {
-  const safeExisting = Array.isArray(existing) ? existing : [];
-  const safeIncoming = Array.isArray(incoming) ? incoming : [];
-  const map = new Map();
-  const keyOf = name => (name || "").trim().toLowerCase();
-  safeExisting.forEach(item => map.set(keyOf(item.nombre), { ...item }));
-  safeIncoming.forEach(item => {
-    const key = keyOf(item.nombre);
-    const current = map.get(key) || {};
-    map.set(key, { ...current, ...item, nombre: current.nombre || item.nombre });
-  });
-  return Array.from(map.values());
-}
 
 function detectType(text, filename) {
   const normalize = str => str.toLowerCase().trim()
@@ -410,9 +397,11 @@ async function saveReportToFirestore(files, meta, user) {
       userProviderId,
       turnoLabel,
       archivos: [
-        agentesData    ? { nombre: "agentes",     tipo: "agentes",     filas: agentesData.agents?.length || 0 } : null,
-        abandonadasData ? { nombre: "abandonadas", tipo: "abandonadas", filas: abandonadasData.intervals?.length || 0 } : null,
-        despachoData   ? { nombre: "despacho",    tipo: "despacho",    filas: despachoData.length || 0 } : null,
+        agentesData     ? { nombre: "agentes",             tipo: "agentes",             filas: agentesData.agents?.length || 0 } : null,
+        abandonadasData ? { nombre: "abandonadas",         tipo: "abandonadas",         filas: abandonadasData.intervals?.length || 0 } : null,
+        despachoInicio.length  ? { nombre: "despacho-inicio",     tipo: "despacho-inicio",     filas: despachoInicio.length } : null,
+        despachoDerivacion.length ? { nombre: "despacho-derivacion", tipo: "despacho-derivacion", filas: despachoDerivacion.length } : null,
+        despachoCreacion.length ? { nombre: "despacho-creacion",  tipo: "despacho-creacion",  filas: despachoCreacion.length } : null,
       ].filter(Boolean),
       timestamp: serverTimestamp(),
     });
@@ -521,16 +510,6 @@ function saveLocalReport(files, meta) {
   } catch { return null; }
 }
 
-function getTurnoStats(turnoLabel, history) {
-  const reports = history.filter(r => r.turnoLabel === turnoLabel);
-  if (!reports.length) return null;
-  return {
-    turnoLabel, cantidad: reports.length,
-    totalOfrecidas:   reports.reduce((s, r) => s + (r.resumen.totalOfrecidas || 0), 0),
-    totalContestadas: reports.reduce((s, r) => s + (r.resumen.totalContestadas || 0), 0),
-    totalAbandonadas: reports.reduce((s, r) => s + (r.resumen.totalAbandonadas || 0), 0),
-  };
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  CHART COMPONENTS
@@ -557,26 +536,6 @@ function ChartDoughnut({ id, data, options }) {
   return React.createElement("canvas", { ref, id });
 }
 
-function ChartGauge({ id, value, max, color }) {
-  const ref = useRef(null); const chartRef = useRef(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    if (chartRef.current) chartRef.current.destroy();
-    const actual = Math.min(value, max);
-    chartRef.current = new Chart(ref.current, {
-      type: "doughnut",
-      data: { labels: ["Valor","Resto"], datasets: [{ data: [actual, Math.max(0, max - actual)], backgroundColor: [color, "#E5E7EB"], borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, cutout: "80%", rotation: -Math.PI, circumference: Math.PI, plugins: { legend: { display: false }, tooltip: { enabled: false } } }
-    });
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [value, max, color]);
-  return React.createElement("canvas", { ref, id });
-}
-
-function getGaugeMax(value, defaultMax) {
-  if (typeof value !== "number" || isNaN(value)) return defaultMax;
-  return Math.max(defaultMax, Math.ceil(value / 30) * 30);
-}
 
 function getGaugeColor(value, threshold) {
   if (typeof value !== "number" || isNaN(value)) return C.gray;
@@ -759,8 +718,11 @@ function ViewResumen({ data }) {
 
   const despData = useMemo(() => {
     if (!dp?.length) return null;
-    const sorted = [...dp].sort((a,b) => a.tiempoSec - b.tiempoSec);
-    return { labels: sorted.map(d => d.nombre.replace("DISTRITO ","D.")), datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => d.tiempoSec > 200 ? C.red : d.tiempoSec < 40 ? C.green : C.mid) }] };
+    const sorted = [...dp].sort((a,b) => (a.tiempoSec||0) - (b.tiempoSec||0));
+    return {
+      labels: sorted.map(d => (d.nombre || "").replace("DISTRITO ","D.")),
+      datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => (d.tiempoSec||0) > 200 ? C.red : (d.tiempoSec||0) < 40 ? C.green : C.mid) }]
+    };
   }, [dp]);
 
   const efectivDonut = useMemo(() => {
