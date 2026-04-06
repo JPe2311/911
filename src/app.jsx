@@ -189,18 +189,25 @@ function parseAbandonadas(raw) {
 
 function parseDespacho(raw, type = "despacho") {
   const cleaned = raw.replace(/^\uFEFF/, "")
-    .replace(/AsignaciÃ³n/g, "Asignación")
-    .replace(/Ã³/g, "ó").replace(/Ã©/g, "é").replace(/Ãº/g, "ú")
-    .replace(/Ã¡/g, "á").replace(/Ã­/g, "í");
+    .replace(/Asignaci\u00c3\u00b3n/g, "Asignaci\u00f3n")
+    .replace(/\u00c3\u00b3/g, "o").replace(/\u00c3\u00a9/g, "e").replace(/\u00c3\u00ba/g, "u")
+    .replace(/\u00c3\u00a1/g, "a").replace(/\u00c3\u00ad/g, "i");
   const lines = parseLines(cleaned).filter(line => line.trim() !== "");
   if (!lines.length) return [];
 
   const normalize = text => text
     .toLowerCase().trim()
-    .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
+    .replace(/\u00e1/g, "a").replace(/\u00e9/g, "e").replace(/\u00ed/g, "i").replace(/\u00f3/g, "o").replace(/\u00fa/g, "u")
     .replace(/[\s\/-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
 
-  const headerCols = parseSemicolon(lines[0]).map(h => normalize(h));
+  // Detectar delimitador: punto y coma o tabulacion
+  const firstLine = lines[0];
+  const useTabs = !firstLine.includes(";") && firstLine.includes("\t");
+  const splitRow = line => useTabs
+    ? line.split("\t").map(s => s.trim())
+    : parseSemicolon(line);
+
+  const headerCols = splitRow(lines[0]).map(h => normalize(h));
   const hasHeader = headerCols.some(h => h.includes("tiempo") || h.includes("total") || h.includes("efectiva") || h.includes("inicio") || h.includes("centro") || h.includes("deriv") || h.includes("creacion") || h.includes("asignacion"));
 
   const idx = { nombre: 0, tiempo1: -1, tiempo2: -1, tiempo3: -1, total: -1, efectiva: -1 };
@@ -209,7 +216,7 @@ function parseDespacho(raw, type = "despacho") {
     headerCols.forEach((h, i) => {
       if (h.includes("distrito") || h.includes("centro") || h.includes("nombre")) idx.nombre = i;
       if (h.includes("inicio") && h.includes("despacho")) idx.tiempo1 = i;
-      // Derivacion: col que contenga 'deriv' (sin importar si tiene 'inicio' o no)
+      // Derivacion: col que contenga 'deriv' pero no 'creacion'
       if (h.includes("deriv") && !h.includes("creacion")) idx.tiempo2 = i;
       // Creacion: col que contenga 'creacion'
       if (h.includes("creacion")) idx.tiempo3 = i;
@@ -228,13 +235,26 @@ function parseDespacho(raw, type = "despacho") {
                   : type === "despacho-creacion"   ? idx.tiempo3
                   : idx.tiempo1;
 
+  // Limpiar el nombre de distrito: eliminar cualquier texto de tiempo que pueda quedar pegado
+  const cleanNombre = raw => {
+    return (raw || "")
+      .replace(/;.*$/g, "")           // cortar en primer punto y coma
+      .replace(/\t.*$/g, "")          // cortar en primer tab
+      .replace(/\s+\d+\s*min(?:utos?)?\s*\d*\s*seg(?:undos?)?/gi, "")
+      .replace(/\s+\d+\s*seg(?:undos?)?/gi, "")
+      .replace(/\s+\d+:\d+:\d+/g, "")
+      .replace(/\s+\d+:\d+/g, "")
+      .trim();
+  };
+
   const distritos = [];
   for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
-    const cols = parseSemicolon(lines[i]);
+    const cols = splitRow(lines[i]);
     const rawNombre = (cols[idx.nombre] || "").trim();
     if (!rawNombre || rawNombre.toLowerCase().startsWith("centro") || rawNombre.toLowerCase() === "total") continue;
-    // Limpiar nombre: solo texto hasta posible separador extra
-    const nombre = rawNombre.replace(/;.*$/, "").trim();
+
+    const nombre = cleanNombre(rawNombre);
+    if (!nombre) continue;
 
     const tiempoStr  = tiempoIdx >= 0 ? (cols[tiempoIdx]    || "0:00").trim() : "0:00";
     const tiempo1Str = idx.tiempo1 >= 0 ? (cols[idx.tiempo1] || "0:00").trim() : "0:00";
