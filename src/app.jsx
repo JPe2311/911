@@ -329,9 +329,11 @@ async function saveReportToFirestore(files, meta, user) {
   const userDisplayName = user.displayName || null;
   const userProviderId = user.providerData?.[0]?.providerId || null;
 
-  const agentesData = files?.agentes;
+  const agentesData    = files?.agentes;
   const abandonadasData = files?.abandonadas;
-  const despachoData = files?.despacho;
+  const despachoInicio      = files?.despachoInicio     || [];
+  const despachoDerivacion  = files?.despachoDerivacion || [];
+  const despachoCreacion    = files?.despachoCreacion   || [];
   let fullMeta = { ...meta };
   if (agentesData?.meta) fullMeta = { ...fullMeta, ...agentesData.meta };
 
@@ -359,11 +361,13 @@ async function saveReportToFirestore(files, meta, user) {
       totalAbandonadas,
     },
     datos: {
-      agentes:          agentesData?.agents      || [],
-      abandonadas:      abandonadasData?.intervals || [],
-      despacho:         despachoData             || [],
-      agentesResumen:   agentesData?.meta        || {},
-      abandonadasResumen: abandonadasData?.totals || {},
+      agentes:             agentesData?.agents       || [],
+      abandonadas:         abandonadasData?.intervals || [],
+      despachoInicio,
+      despachoDerivacion,
+      despachoCreacion,
+      agentesResumen:      agentesData?.meta         || {},
+      abandonadasResumen:  abandonadasData?.totals    || {},
     },
   };
 
@@ -480,8 +484,13 @@ function saveLocalReport(files, meta) {
       turno: { fecha: fullMeta.fechaDesde || "", horaDesde: fullMeta.horaDesde || "", horaHasta: fullMeta.horaHasta || "" },
       resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
       datos: {
-        agentes: agentesData?.agents || [], abandonadas: abandonadasData?.intervals || [],
-        despacho: files?.despacho || [], agentesResumen: agentesData?.meta || {}, abandonadasResumen: abandonadasData?.totals || {},
+        agentes:            agentesData?.agents        || [],
+        abandonadas:        abandonadasData?.intervals  || [],
+        despachoInicio:     files?.despachoInicio      || [],
+        despachoDerivacion: files?.despachoDerivacion  || [],
+        despachoCreacion:   files?.despachoCreacion    || [],
+        agentesResumen:     agentesData?.meta          || {},
+        abandonadasResumen: abandonadasData?.totals     || {},
       },
     };
     history.push(report);
@@ -695,7 +704,9 @@ function UploadZone({ onFiles, loaded }) {
 //  VIEW: RESUMEN
 // ════════════════════════════════════════════════════════════════════════════
 function ViewResumen({ data }) {
-  const { abandonadas: ab, agentes: ag, despacho: dp } = data;
+  const { abandonadas: ab, agentes: ag, despachoInicio: dpI, despachoDerivacion: dpD, despachoCreacion: dpC } = data;
+  // Para gráficos generales usamos despacho-inicio como referencia principal
+  const dp = dpI?.length ? dpI : (dpD?.length ? dpD : dpC);
   const tot = ab?.totals || {};
   const pctAtend = tot.ofrecidas ? ((tot.contestadas / tot.ofrecidas) * 100) : 0;
   const pctAband = tot.ofrecidas ? ((tot.abandonadas / tot.ofrecidas) * 100) : 0;
@@ -731,17 +742,23 @@ function ViewResumen({ data }) {
   }, [dp]);
 
   const efectivDonut = useMemo(() => {
-    if (!dp?.length) return null;
-    const totalCartas = dp.reduce((s,d) => s + d.total, 0);
-    const totalEfect  = dp.reduce((s,d) => s + d.efectiva, 0);
+    // Usar despachoInicio para efectividad (tiene total/efectiva)
+    const allDp = [...(dpI||[]), ...(dpD||[]), ...(dpC||[])];
+    if (!allDp.length) return null;
+    const totalCartas = allDp.reduce((s,d) => s + (d.total || 0), 0);
+    const totalEfect  = allDp.reduce((s,d) => s + (d.efectiva || 0), 0);
+    if (!totalCartas) return null;
     return { labels: ["Efectivas","No Efectivas"], datasets: [{ data: [totalEfect, totalCartas - totalEfect], backgroundColor: [C.green, C.red], borderWidth: 0, hoverOffset: 4 }] };
-  }, [dp]);
+  }, [dpI, dpD, dpC]);
 
   const gaugeData = useMemo(() => {
-    if (!dp?.length) return null;
-    const avg = arr => arr.length ? Math.round(arr.reduce((s,v) => s+v, 0) / arr.length) : 0;
-    return { tiempoInicioDespacho: avg(dp.map(d => d.tiempo1Sec||0)), tiempoDerivacionInicio: avg(dp.map(d => d.tiempo2Sec||0)), tiempoCreacionDespacho: avg(dp.map(d => d.tiempo3Sec||0)) };
-  }, [dp]);
+    const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s,v) => s+v, 0) / arr.length) : 0;
+    const tI = avg((dpI || []).map(d => d.tiempoSec || 0));
+    const tD = avg((dpD || []).map(d => d.tiempoSec || 0));
+    const tC = avg((dpC || []).map(d => d.tiempoSec || 0));
+    if (!tI && !tD && !tC) return null;
+    return { tiempoInicioDespacho: tI, tiempoDerivacionInicio: tD, tiempoCreacionDespacho: tC };
+  }, [dpI, dpD, dpC]);
 
   const donutOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, padding: 10 } } }, cutout: "65%" };
   const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde||""} → ${meta.fechaHasta} ${meta.horaHasta||""}` : "Período cargado";
@@ -757,7 +774,7 @@ function ViewResumen({ data }) {
       tot.contestadas && React.createElement(StatKpi, { label: "Atendidas",           value: tot.contestadas.toLocaleString("es-AR"), sub: `${pctAtend.toFixed(1)}% del total`,     accent: C.green }),
       tot.abandonadas && React.createElement(StatKpi, { label: "Abandonadas",         value: tot.abandonadas.toLocaleString("es-AR"), sub: `${pctAband.toFixed(1)}% del total`,     accent: C.red }),
       ag?.agents?.filter(a => a.ofrecidas >= 30).length > 0 && React.createElement(StatKpi, { label: "Operadores Activos", value: ag.agents.filter(a => a.ofrecidas >= 30).length, sub: "cabinas cubiertas", accent: C.yellow }),
-      dp?.length && React.createElement(StatKpi, { label: "Distritos Evaluados", value: dp.length, sub: "en el período", accent: "#7c3aed" }),
+      dpI?.length > 0 && React.createElement(StatKpi, { label: "Distritos Evaluados", value: dpI.length, sub: "en el período", accent: "#7c3aed" }),
     ),
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 } },
       horaData && React.createElement(Card, null,
@@ -781,11 +798,13 @@ function ViewResumen({ data }) {
       ),
       efectivDonut && React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "✅ Efectividad Despacho"),
-        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total cartas: ${dp.reduce((s,d)=>s+d.total,0)}`),
-        React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-efectiv", data: efectivDonut, options: donutOpts })),
-        React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
-          (() => { const t2 = dp.reduce((s,d)=>s+d.total,0); const ef = dp.reduce((s,d)=>s+d.efectiva,0); const pct = t2>0?((ef/t2)*100).toFixed(1):0; return React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg }); })()
-        )
+        (() => { const allDp = [...(dpI||[]),...(dpD||[]),...(dpC||[])]; const t2 = allDp.reduce((s,d)=>s+(d.total||0),0); const ef = allDp.reduce((s,d)=>s+(d.efectiva||0),0); const pct = t2>0?((ef/t2)*100).toFixed(1):"0"; return React.createElement(React.Fragment, null,
+          React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total cartas: ${t2}`),
+          React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-efectiv", data: efectivDonut, options: donutOpts })),
+          React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
+            React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg })
+          )
+        ); })()
       )
     ),
     gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
@@ -809,7 +828,7 @@ function ViewResumen({ data }) {
       )
     ),
     despData && React.createElement(Card, { style: { marginBottom: 16 } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "🚓 Tiempo Inicio Despacho → Asignación (por Distrito)"),
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "🚓 Inicio Despacho → Asignación (por Distrito)"),
       React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, "Ordenado de menor a mayor. Verde < 40 seg. · Rojo > 3 min."),
       React.createElement("div", { style: { height: 200 } }, React.createElement(ChartLine, { id: "chart-despacho", data: despData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 }, callback: v => fmtSeconds(v) } } } } }))
     ),
@@ -839,15 +858,18 @@ function AutoAlertas({ data }) {
 
     if (ivs.length) {
       const worst = [...ivs].sort((a,b) => b.abandonadas - a.abandonadas)[0];
-      if (worst && worst.abandonadas > umbralAbandHora)
-        list.push({ type: "orange", msg: `Hora pico de abandono${scheduleStr}: ${worst.hora} hs (${worst.abandonadas} abandonadas — ${Math.round((worst.abandonadas / worst.ofrecidas || 0) * 100)}% del intervalo)` });
+      if (worst && worst.abandonadas > umbralAbandHora) {
+        const pctIv = worst.ofrecidas > 0 ? Math.round((worst.abandonadas / worst.ofrecidas) * 100) : 0;
+        list.push({ type: "orange", msg: `Hora pico de abandono${scheduleStr}: ${worst.hora} hs (${worst.abandonadas} abandonadas — ${pctIv}% del intervalo)` });
+      }
     }
     if (data.agentes?.agents) {
       const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
       main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0])*60+parseInt(parts[1]||0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: tiempo ausente elevado (${a.tiempoAusente} hs)` }); });
       main.forEach(a => { if (a.abandonadas > 50) list.push({ type: "orange", msg: `${a.nombre}: ${a.abandonadas} abandonadas en cabina — revisar` }); });
     }
-    if (data.despacho) { data.despacho.filter(d => d.tiempoSec > 300).forEach(d => list.push({ type: "red", msg: `${d.nombre}: tiempo de despacho crítico (${fmtSeconds(d.tiempoSec)})` })); }
+    const allDespacho = [...(data.despachoInicio||[]), ...(data.despachoDerivacion||[]), ...(data.despachoCreacion||[])];
+    allDespacho.filter(d => d.tiempoSec > 300).forEach(d => list.push({ type: "red", msg: `${d.nombre}: tiempo de despacho crítico (${fmtSeconds(d.tiempoSec)})` }));
     return list;
   }, [data]);
 
@@ -988,30 +1010,58 @@ function ViewOperadores({ data }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: DESPACHO
 // ════════════════════════════════════════════════════════════════════════════
-function ViewDespacho({ data }) {
-  const dp = data.despacho;
-  if (!dp?.length) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá el archivo de Tiempo Inicio Despacho.");
-  const sorted = [...dp].sort((a,b) => a.tiempoSec - b.tiempoSec);
+function DespachoSection({ title, subtitle, dataset, sectionNum }) {
+  if (!dataset?.length) return React.createElement("div", { style: { padding: "20px", textAlign: "center", color: C.gray, fontSize: 12 } }, `Sin datos para: ${title}`);
+  const sorted = [...dataset].sort((a,b) => a.tiempoSec - b.tiempoSec);
   const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
   const top3 = sorted.slice(0, 3);
   const bot3 = sorted.slice(-3).reverse();
-
-  return React.createElement("div", null,
-    React.createElement(SectionTitle, { num: "4", title: "Tiempo Inicio Despacho → Asignación", sub: `${sorted.length} distritos evaluados` }),
-    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 } },
+  return React.createElement("div", { style: { marginBottom: 32 } },
+    React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 2 } }, title),
+    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, subtitle || `${sorted.length} distritos`),
+    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 } },
       React.createElement(Card, null,
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: "#065f46", marginBottom: 12 } }, "🏆 Top 3 — Mayor Desempeño"),
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: "#065f46", marginBottom: 10 } }, "🏆 Top 3 — Menor tiempo"),
         top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: "top" }))
       ),
       React.createElement(Card, null,
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.red, marginBottom: 12 } }, "⚠️ Bottom 3 — Menor Desempeño"),
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.red, marginBottom: 10 } }, "⚠️ Bottom 3 — Mayor tiempo"),
         bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length-i, variant: "bot" }))
       )
     ),
     React.createElement(Card, null,
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 14 } }, "Ranking Completo"),
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.navy, marginBottom: 10 } }, "Ranking Completo"),
       sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: i < 3 ? "top" : i >= sorted.length-3 ? "bot" : "mid" }))
     )
+  );
+}
+
+function ViewDespacho({ data }) {
+  const dpI = data.despachoInicio     || [];
+  const dpD = data.despachoDerivacion || [];
+  const dpC = data.despachoCreacion   || [];
+  if (!dpI.length && !dpD.length && !dpC.length)
+    return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá los archivos de tiempos de despacho.");
+
+  return React.createElement("div", null,
+    React.createElement(SectionTitle, { num: "4", title: "Tiempos de Despacho por Distrito", sub: "Un ranking por cada métrica de tiempo" }),
+    React.createElement(DespachoSection, {
+      title:    "⏱ Inicio Despacho → Asignación",
+      subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
+      dataset:  dpI,
+    }),
+    dpD.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
+    React.createElement(DespachoSection, {
+      title:    "🔄 Derivación → Inicio Despacho",
+      subtitle: `${dpD.length} distritos — tiempo desde derivación hasta inicio del despacho`,
+      dataset:  dpD,
+    }),
+    dpC.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
+    React.createElement(DespachoSection, {
+      title:    "📋 Creación Evento → Despacho",
+      subtitle: `${dpC.length} distritos — tiempo desde la creación del evento hasta el despacho`,
+      dataset:  dpC,
+    })
   );
 }
 
@@ -1230,7 +1280,7 @@ function ViewHistorial({ user }) {
 function App() {
   const [user, setUser]       = useState(undefined);  // undefined = cargando, null = no auth, object = logueado
   const [skipAuth, setSkipAuth] = useState(false);
-  const [files, setFiles]     = useState({ agentes: null, abandonadas: null, despacho: null });
+  const [files, setFiles]     = useState({ agentes: null, abandonadas: null, despachoInicio: null, despachoDerivacion: null, despachoCreacion: null });
   const [loaded, setLoaded]   = useState([]);
   const [view, setView]       = useState("upload");
   const [err, setErr]         = useState(null);
@@ -1321,11 +1371,12 @@ function App() {
         next.agentes = parseAgentes(text);
       } else if (type === "abandonadas") {
         next.abandonadas = parseAbandonadas(text);
-      } else if (type === "despacho") {
-        next.despacho = mergeDespachoData(next.despacho, parseDespacho(text, "despacho"));
-        ["despacho-inicio", "despacho-derivacion", "despacho-creacion"].forEach(key => { if (!nextLoaded.includes(key)) nextLoaded.push(key); });
-      } else if (type.startsWith("despacho-")) {
-        next.despacho = mergeDespachoData(next.despacho, parseDespacho(text, type));
+      } else if (type === "despacho-inicio") {
+        next.despachoInicio = parseDespacho(text, "despacho-inicio");
+      } else if (type === "despacho-derivacion") {
+        next.despachoDerivacion = parseDespacho(text, "despacho-derivacion");
+      } else if (type === "despacho-creacion") {
+        next.despachoCreacion = parseDespacho(text, "despacho-creacion");
       }
       if (!nextLoaded.includes(type)) nextLoaded.push(type);
     }
@@ -1334,7 +1385,7 @@ function App() {
     if (nextLoaded.length > 0 && view === "upload") setView("resumen");
   }, [files, loaded, view]);
 
-  const reset = () => { setFiles({ agentes: null, abandonadas: null, despacho: null }); setLoaded([]); setView("upload"); setErr(null); lastSavedTurno.current = null; };
+  const reset = () => { setFiles({ agentes: null, abandonadas: null, despachoInicio: null, despachoDerivacion: null, despachoCreacion: null }); setLoaded([]); setView("upload"); setErr(null); lastSavedTurno.current = null; };
 
   // Pantalla de carga inicial (esperando onAuthStateChanged)
   if (user === undefined && !skipAuth) {
@@ -1359,7 +1410,7 @@ function App() {
     { id: "resumen",    label: "📊 Resumen",    avail: hasData },
     { id: "horas",      label: "📞 Por Hora",   avail: !!files.abandonadas },
     { id: "operadores", label: "👤 Operadores", avail: !!files.agentes },
-    { id: "despacho",   label: "🚓 Despacho",   avail: !!files.despacho },
+    { id: "despacho",   label: "🚓 Despacho",   avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
     { id: "historial",  label: "📋 Historial",  avail: true },
   ];
 
