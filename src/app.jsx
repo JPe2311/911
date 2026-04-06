@@ -267,22 +267,29 @@ function mergeDespachoData(existing, incoming) {
   return Array.from(map.values());
 }
 
-function detectType(text) {
+function detectType(text, filename) {
   const normalize = str => str.toLowerCase().trim()
     .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
     .replace(/[\s\/-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
+
+  // Detección por nombre de archivo (más confiable que el contenido)
+  if (filename) {
+    const fn = normalize(filename);
+    if (fn.startsWith("llamadas por agente") || fn.startsWith("actividad del agente")) return "agentes";
+    if (fn.startsWith("abandonadas")) return "abandonadas";
+    if (fn.startsWith("tiempo inicio") || fn.startsWith("tiempo inicio despacho")) return "despacho-inicio";
+    if (fn.startsWith("tiempo derivacion") || fn.startsWith("tiempo derivaci")) return "despacho-derivacion";
+    if (fn.startsWith("tiempo creacion") || fn.startsWith("tiempo creaci")) return "despacho-creacion";
+  }
+
+  // Fallback: detección por contenido
   const t = normalize(text.slice(0, 2000));
   if (t.includes("llamadas por agente") || t.includes("actividad del agente")) return "agentes";
   if (t.includes("abandonadas") && t.includes("grupo de servicio")) return "abandonadas";
-
-  // IMPORTANTE: creacion debe ir ANTES que derivacion porque el archivo de Creacion
-  // contiene la palabra 'derivacion' en su encabezado ('Tiempo Creacion / Tiempo Derivacion')
-  if (t.includes("creacion") || t.includes("tiempo creacion") || t.includes("creacion despacho")) return "despacho-creacion";
-
-  if (t.includes("tiempo inicio despacho") || t.includes("inicio despacho") || t.includes("despacho inicio")) return "despacho-inicio";
-  // derivacion solo si NO contiene 'creacion' (ya capturado arriba)
-  if (t.includes("tiempo derivacion") || t.includes("derivacion inicio") || t.includes("derivacion")) return "despacho-derivacion";
-
+  // creacion ANTES que derivacion (el CSV de Creacion contiene 'derivacion' en su header)
+  if (t.includes("creacion")) return "despacho-creacion";
+  if (t.includes("tiempo inicio despacho") || t.includes("inicio despacho")) return "despacho-inicio";
+  if (t.includes("tiempo derivacion") || t.includes("derivacion")) return "despacho-derivacion";
   if (t.includes("centro despacho") || t.includes("asignaci")) return "despacho";
   return null;
 }
@@ -1380,7 +1387,7 @@ function App() {
           r.readAsText(f, "latin-1");
         });
       }
-          const type = detectType(text);
+          const type = detectType(text, f.name);
       if (!type) { setErr(`No se pudo identificar "${f.name}".`); continue; }
       if (type === "agentes") {
         next.agentes = parseAgentes(text);
