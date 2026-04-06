@@ -433,14 +433,14 @@ async function saveReportToFirestore(files, meta, user) {
   }
 }
 
-async function loadReportsFromFirestore(uid) {
+async function loadReportsFromFirestore() {
   const db = getDB();
-  if (!db || !uid) return [];
+  if (!db) return [];
   try {
-    const { collection, query, where, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    // Carga TODOS los reportes (visibles para todos los usuarios autenticados)
     const q = query(
       collection(db, "informes"),
-      where("uid", "==", uid),
       orderBy("fechaGuardado", "desc")
     );
     const snap = await getDocs(q);
@@ -1106,7 +1106,8 @@ function ViewHistorial({ user }) {
     let cancelled = false;
     setLoading(true);
     if (isFirebase) {
-      loadReportsFromFirestore(user.uid).then(reports => {
+      // Carga TODOS los reportes (todos los usuarios pueden ver, solo borrar los propios)
+      loadReportsFromFirestore().then(reports => {
         if (!cancelled) { setHistory(reports); setLoading(false); }
       });
     } else {
@@ -1117,6 +1118,8 @@ function ViewHistorial({ user }) {
   }, [user]);
 
   const handleDelete = async (report) => {
+    // Solo puede borrar el propietario del reporte
+    if (isFirebase && report.uid !== user?.uid) return;
     if (!confirm(`¿Eliminar el reporte ${report.id}? Esta acción no se puede deshacer.`)) return;
     setDeleting(report.id);
     if (isFirebase && report.firestoreId) {
@@ -1132,6 +1135,8 @@ function ViewHistorial({ user }) {
 
   const turnos = [...new Set(history.map(r => r.turnoLabel))].filter(Boolean).sort().reverse();
   const filteredReports = filterTurno ? history.filter(r => r.turnoLabel === filterTurno) : history;
+  // El usuario actual solo puede borrar sus propios reportes
+  const canDelete = (r) => !isFirebase || r.uid === user?.uid;
 
   if (loading) return React.createElement("div", { style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando historial…");
 
@@ -1219,9 +1224,9 @@ function ViewHistorial({ user }) {
 
   return React.createElement("div", null,
     React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
-      React.createElement(SectionTitle, { num: "5", title: "Historial de Reportes", sub: `${history.length} reportes — ${isFirebase ? "sincronizados en Firestore" : "almacenados localmente"}` }),
+      React.createElement(SectionTitle, { num: "5", title: "Historial de Reportes", sub: `${history.length} reportes — ${isFirebase ? "compartidos en tiempo real" : "almacenados localmente"}` }),
       isFirebase && React.createElement("button", {
-        onClick: () => { setLoading(true); loadReportsFromFirestore(user.uid).then(r => { setHistory(r); setLoading(false); }); },
+        onClick: () => { setLoading(true); loadReportsFromFirestore().then(r => { setHistory(r); setLoading(false); }); },
         style: { background: C.light, border: `1px solid ${C.mid}`, color: C.blue, borderRadius: 7, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
       }, "↺ Actualizar")
     ),
@@ -1265,9 +1270,11 @@ function ViewHistorial({ user }) {
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, r.resumen?.totalOfrecidas),
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen?.totalContestadas),
                 React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen?.totalAbandonadas),
-                React.createElement("td", { style: { padding: "9px 12px", display: "flex", gap: 6 } },
+                React.createElement("td", { style: { padding: "9px 12px", display: "flex", gap: 6, alignItems: "center" } },
                   React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.blue, color: "#fff", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer" } }, "Ver"),
-                  React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: C.redBg, color: C.red, border: `1px solid #fca5a5`, borderRadius: 4, padding: "4px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer" } }, deleting === r.id ? "…" : "✕")
+                  canDelete(r)
+                    ? React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: C.redBg, color: C.red, border: `1px solid #fca5a5`, borderRadius: 4, padding: "4px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer" } }, deleting === r.id ? "…" : "✕")
+                    : React.createElement("span", { title: "Solo el autor puede eliminar este reporte", style: { fontSize: 10, color: C.gray, padding: "4px 6px" } }, "🔒")
                 )
               );
             })
