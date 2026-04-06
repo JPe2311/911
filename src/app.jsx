@@ -242,11 +242,13 @@ function parseDespacho(raw, type = "despacho") {
   return distritos;
 }
 
-function mergeDespachoData(existing = [], incoming = []) {
+function mergeDespachoData(existing, incoming) {
+  const safeExisting = Array.isArray(existing) ? existing : [];
+  const safeIncoming = Array.isArray(incoming) ? incoming : [];
   const map = new Map();
   const keyOf = name => (name || "").trim().toLowerCase();
-  existing.forEach(item => map.set(keyOf(item.nombre), { ...item }));
-  incoming.forEach(item => {
+  safeExisting.forEach(item => map.set(keyOf(item.nombre), { ...item }));
+  safeIncoming.forEach(item => {
     const key = keyOf(item.nombre);
     const current = map.get(key) || {};
     map.set(key, { ...current, ...item, nombre: current.nombre || item.nombre });
