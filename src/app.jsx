@@ -209,34 +209,45 @@ function parseDespacho(raw, type = "despacho") {
     headerCols.forEach((h, i) => {
       if (h.includes("distrito") || h.includes("centro") || h.includes("nombre")) idx.nombre = i;
       if (h.includes("inicio") && h.includes("despacho")) idx.tiempo1 = i;
-      if (h.includes("deriv") && h.includes("inicio")) idx.tiempo2 = i;
-      if ((h.includes("creaci") || h.includes("creacion")) && (h.includes("despacho") || h.includes("tiempo"))) idx.tiempo3 = i;
-      if (h.includes("total")) idx.total = i;
+      // Derivacion: col que contenga 'deriv' (sin importar si tiene 'inicio' o no)
+      if (h.includes("deriv") && !h.includes("creacion")) idx.tiempo2 = i;
+      // Creacion: col que contenga 'creacion'
+      if (h.includes("creacion")) idx.tiempo3 = i;
+      if (h.includes("total") && !h.includes("efectiva")) idx.total = i;
       if (h.includes("efectiva")) idx.efectiva = i;
     });
   }
 
-  if (type === "despacho-inicio" && idx.tiempo1 < 0) idx.tiempo1 = 1;
+  if (type === "despacho-inicio"     && idx.tiempo1 < 0) idx.tiempo1 = 1;
   if (type === "despacho-derivacion" && idx.tiempo2 < 0) idx.tiempo2 = 1;
-  if (type === "despacho-creacion" && idx.tiempo3 < 0) idx.tiempo3 = 1;
-  if (type === "despacho" && idx.tiempo1 < 0) idx.tiempo1 = 1;
+  if (type === "despacho-creacion"   && idx.tiempo3 < 0) idx.tiempo3 = 1;
+  if (type === "despacho"            && idx.tiempo1 < 0) idx.tiempo1 = 1;
+
+  // Columna de tiempo principal segun el tipo de archivo
+  const tiempoIdx = type === "despacho-derivacion" ? idx.tiempo2
+                  : type === "despacho-creacion"   ? idx.tiempo3
+                  : idx.tiempo1;
 
   const distritos = [];
   for (let i = hasHeader ? 1 : 0; i < lines.length; i++) {
     const cols = parseSemicolon(lines[i]);
-    if (!cols[idx.nombre] || cols[idx.nombre].startsWith("Centro") || cols[idx.nombre] === "") continue;
-    const nombre = cols[idx.nombre] || "";
-    const tiempo1Str = idx.tiempo1 >= 0 ? cols[idx.tiempo1] || "0:00" : "0:00";
-    const tiempo2Str = idx.tiempo2 >= 0 ? cols[idx.tiempo2] || "0:00" : "0:00";
-    const tiempo3Str = idx.tiempo3 >= 0 ? cols[idx.tiempo3] || "0:00" : "0:00";
-    const total = idx.total >= 0 ? parseInt(cols[idx.total]) || 0 : 0;
+    const rawNombre = (cols[idx.nombre] || "").trim();
+    if (!rawNombre || rawNombre.toLowerCase().startsWith("centro") || rawNombre.toLowerCase() === "total") continue;
+    // Limpiar nombre: solo texto hasta posible separador extra
+    const nombre = rawNombre.replace(/;.*$/, "").trim();
+
+    const tiempoStr  = tiempoIdx >= 0 ? (cols[tiempoIdx]    || "0:00").trim() : "0:00";
+    const tiempo1Str = idx.tiempo1 >= 0 ? (cols[idx.tiempo1] || "0:00").trim() : "0:00";
+    const tiempo2Str = idx.tiempo2 >= 0 ? (cols[idx.tiempo2] || "0:00").trim() : "0:00";
+    const tiempo3Str = idx.tiempo3 >= 0 ? (cols[idx.tiempo3] || "0:00").trim() : "0:00";
+    const total    = idx.total    >= 0 ? parseInt(cols[idx.total])    || 0 : 0;
     const efectiva = idx.efectiva >= 0 ? parseInt(cols[idx.efectiva]) || 0 : 0;
+    const tiempoSec  = parseTimeToSeconds(tiempoStr);
     const tiempo1Sec = parseTimeToSeconds(tiempo1Str);
     const tiempo2Sec = parseTimeToSeconds(tiempo2Str);
     const tiempo3Sec = parseTimeToSeconds(tiempo3Str);
-    const tiempoSec = tiempo1Sec || tiempo2Sec || tiempo3Sec;
-    if (nombre && (tiempo1Sec || tiempo2Sec || tiempo3Sec || total || efectiva)) {
-      distritos.push({ nombre, tiempo1Str, tiempo2Str, tiempo3Str, tiempo1Sec, tiempo2Sec, tiempo3Sec, tiempoStr: tiempo1Str, tiempoSec, total, efectiva, noEfectiva: Math.max(0, total - efectiva) });
+    if (nombre && (tiempoSec || total || efectiva)) {
+      distritos.push({ nombre, tiempoStr, tiempoSec, tiempo1Str, tiempo2Str, tiempo3Str, tiempo1Sec, tiempo2Sec, tiempo3Sec, total, efectiva, noEfectiva: Math.max(0, total - efectiva) });
     }
   }
   return distritos;
@@ -259,16 +270,20 @@ function mergeDespachoData(existing, incoming) {
 function detectType(text) {
   const normalize = str => str.toLowerCase().trim()
     .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
-    .replace(/[\s\/\-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
+    .replace(/[\s\/-]+/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ");
   const t = normalize(text.slice(0, 2000));
   if (t.includes("llamadas por agente") || t.includes("actividad del agente")) return "agentes";
   if (t.includes("abandonadas") && t.includes("grupo de servicio")) return "abandonadas";
 
-  if (t.includes("tiempo inicio despacho") || t.includes("inicio despacho") || t.includes("despacho inicio")) return "despacho-inicio";
-  if (t.includes("tiempo derivacion inicio") || t.includes("derivacion inicio") || t.includes("tiempo derivacion") || t.includes("derivacion")) return "despacho-derivacion";
-  if (t.includes("tiempo creacion tiempo") || t.includes("creacion tiempo") || t.includes("tiempo creacion") || t.includes("creacion") || t.includes("creacion despacho")) return "despacho-creacion";
+  // IMPORTANTE: creacion debe ir ANTES que derivacion porque el archivo de Creacion
+  // contiene la palabra 'derivacion' en su encabezado ('Tiempo Creacion / Tiempo Derivacion')
+  if (t.includes("creacion") || t.includes("tiempo creacion") || t.includes("creacion despacho")) return "despacho-creacion";
 
-  if (t.includes("centro despacho") || t.includes("inicio despacho") || t.includes("asignaci")) return "despacho";
+  if (t.includes("tiempo inicio despacho") || t.includes("inicio despacho") || t.includes("despacho inicio")) return "despacho-inicio";
+  // derivacion solo si NO contiene 'creacion' (ya capturado arriba)
+  if (t.includes("tiempo derivacion") || t.includes("derivacion inicio") || t.includes("derivacion")) return "despacho-derivacion";
+
+  if (t.includes("centro despacho") || t.includes("asignaci")) return "despacho";
   return null;
 }
 
