@@ -1014,26 +1014,26 @@ function ViewOperadores({ data }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: DESPACHO
 // ════════════════════════════════════════════════════════════════════════════
-function DespachoSection({ title, subtitle, dataset, sectionNum }) {
+function DespachoSection({ title, subtitle, dataset, sectionNum, compact }) {
   if (!dataset?.length) return React.createElement("div", { style: { padding: "20px", textAlign: "center", color: C.gray, fontSize: 12 } }, `Sin datos para: ${title}`);
   const sorted = [...dataset].sort((a,b) => a.tiempoSec - b.tiempoSec);
   const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
   const top3 = sorted.slice(0, 3);
   const bot3 = sorted.slice(-3).reverse();
-  return React.createElement("div", { style: { marginBottom: 32 } },
-    React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 2 } }, title),
+  return React.createElement("div", { style: { marginBottom: compact ? 16 : 32 } },
+    React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 2 } }, title),
     React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, subtitle || `${sorted.length} distritos`),
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 } },
-      React.createElement(Card, null,
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: "#065f46", marginBottom: 10 } }, "🏆 Top 3 — Menor tiempo"),
+      React.createElement(Card, { style: { padding: compact ? "12px 14px" : "20px" } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 11, color: "#065f46", marginBottom: 10 } }, "🏆 Top 3 — Menor tiempo"),
         top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: "top" }))
       ),
-      React.createElement(Card, null,
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.red, marginBottom: 10 } }, "⚠️ Bottom 3 — Mayor tiempo"),
+      React.createElement(Card, { style: { padding: compact ? "12px 14px" : "20px" } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 11, color: C.red, marginBottom: 10 } }, "⚠️ Bottom 3 — Mayor tiempo"),
         bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length-i, variant: "bot" }))
       )
     ),
-    React.createElement(Card, null,
+    !compact && React.createElement(Card, null,
       React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.navy, marginBottom: 10 } }, "Ranking Completo"),
       sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: i < 3 ? "top" : i >= sorted.length-3 ? "bot" : "mid" }))
     )
@@ -1199,26 +1199,23 @@ function ViewHistorial({ user }) {
         )
       )
     ),
-    selectedReport.datos?.despacho?.length > 0 && React.createElement(Card, null,
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Despacho (Top 10)"),
-      React.createElement("div", { style: { overflowX: "auto" } },
-        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
-          React.createElement("thead", null,
-            React.createElement("tr", { style: { background: C.blue } },
-              ["Distrito","Tiempo","Efectividad"].map(h => React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h))
-            )
-          ),
-          React.createElement("tbody", null,
-            selectedReport.datos.despacho.slice(0, 10).map((d, i) =>
-              React.createElement("tr", { key: d.nombre, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, d.nombre),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontFamily: "monospace" } }, fmtSeconds(d.tiempoSec)),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: (d.efectiva/d.total)*100 >= 90 ? C.green : (d.efectiva/d.total)*100 >= 80 ? C.yellow : C.red } }, `${((d.efectiva/d.total)*100).toFixed(0)}%`)
-              )
-            )
-          )
-        )
-      )
+    (selectedReport.datos?.despachoInicio?.length > 0 || selectedReport.datos?.despachoDerivacion?.length > 0 || selectedReport.datos?.despachoCreacion?.length > 0) && React.createElement("div", null,
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Tiempos de Despacho (Mejores y Peores)"),
+      selectedReport.datos.despachoInicio?.length > 0 && React.createElement(DespachoSection, {
+        title: "Inicio Despacho → Asignación",
+        dataset: selectedReport.datos.despachoInicio,
+        compact: true
+      }),
+      selectedReport.datos.despachoDerivacion?.length > 0 && React.createElement(DespachoSection, {
+        title: "Derivación → Inicio Despacho",
+        dataset: selectedReport.datos.despachoDerivacion,
+        compact: true
+      }),
+      selectedReport.datos.despachoCreacion?.length > 0 && React.createElement(DespachoSection, {
+        title: "Creación Evento → Despacho",
+        dataset: selectedReport.datos.despachoCreacion,
+        compact: true
+      })
     )
   );
 
