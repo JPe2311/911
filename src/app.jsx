@@ -271,9 +271,22 @@ function detectType(text) {
 }
 
 function hasRequiredUploads(loaded) {
-  return loaded.includes("agentes") && loaded.includes("abandonadas") && (
-    loaded.includes("despacho") || (loaded.includes("despacho-inicio") && loaded.includes("despacho-derivacion") && loaded.includes("despacho-creacion"))
-  );
+  return loaded.includes("agentes") &&
+    loaded.includes("abandonadas") &&
+    loaded.includes("despacho-inicio") &&
+    loaded.includes("despacho-derivacion") &&
+    loaded.includes("despacho-creacion");
+}
+
+function buildScheduleLabel(meta) {
+  if (!meta) return "";
+  const { horaDesde, horaHasta, fechaDesde, fechaHasta } = meta;
+  if (!horaDesde && !horaHasta) return fechaDesde || "";
+  const from = horaDesde ? horaDesde.slice(0, 5) : "";
+  const to   = horaHasta ? horaHasta.slice(0, 5) : "";
+  const fDate = fechaDesde || "";
+  const tDate = fechaHasta && fechaHasta !== fechaDesde ? ` ${fechaHasta}` : "";
+  return `${fDate} ${from} → ${tDate} ${to}`.trim();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -648,12 +661,14 @@ function LoginPanel({ onLogin, onSkip }) {
 function UploadZone({ onFiles, loaded }) {
   const [drag, setDrag] = useState(false);
   const types = {
-    agentes:            { label: "Llamadas por Agente",     color: C.mid,   bg: C.light },
-    abandonadas:        { label: "Abandonadas por Hora",    color: C.red,   bg: C.redBg },
-    "despacho-inicio": { label: "Tiempo Inicio Despacho",  color: C.green, bg: C.greenBg },
-    "despacho-derivacion": { label: "Tiempo Derivación Inicio", color: C.orange, bg: C.orBg },
-    "despacho-creacion": { label: "Tiempo Creación Tiempo", color: C.blue,  bg: C.bg },
+    agentes:               { label: "Llamadas por Agente",          color: C.mid,    bg: C.light },
+    abandonadas:           { label: "Abandonadas por Hora",         color: C.red,    bg: C.redBg },
+    "despacho-inicio":     { label: "Tiempo Inicio Despacho",       color: C.green,  bg: C.greenBg },
+    "despacho-derivacion": { label: "Tiempo Derivación Inicio",     color: C.orange, bg: C.orBg },
+    "despacho-creacion":   { label: "Tiempo Creación/Derivación",   color: C.blue,   bg: C.light },
   };
+  const totalTypes = Object.keys(types).length;
+  const doneCount  = Object.keys(types).filter(k => loaded.includes(k)).length;
   return React.createElement("div", {
     onDragOver: e => { e.preventDefault(); setDrag(true); },
     onDragLeave: () => setDrag(false),
@@ -662,11 +677,12 @@ function UploadZone({ onFiles, loaded }) {
   },
     React.createElement("input", { type: "file", multiple: true, accept: ".csv", onChange: e => onFiles(Array.from(e.target.files)), style: { position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" } }),
     React.createElement("div", { style: { fontSize: 40, marginBottom: 10 } }, "📂"),
-    React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: C.navy, marginBottom: 6 } }, "Arrastrá los archivos CSV aquí"),
-    React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 20 } }, "o hacé clic para seleccionarlos — se detectan automáticamente"),
+    React.createElement("div", { style: { fontSize: 18, fontWeight: 800, color: C.navy, marginBottom: 6 } }, "Arrastrá los 5 archivos CSV aquí"),
+    React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 4 } }, "o hacé clic para seleccionarlos — se detectan automáticamente"),
+    React.createElement("div", { style: { fontSize: 12, color: doneCount === totalTypes ? C.green : C.orange, fontWeight: 700, marginBottom: 16 } }, `${doneCount} de ${totalTypes} archivos cargados`),
     React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } },
       Object.entries(types).map(([key, { label, color, bg }]) => {
-        const done = loaded.includes(key) || (key.startsWith("despacho") && loaded.includes("despacho"));
+        const done = loaded.includes(key);
         return React.createElement("span", { key, style: { background: done ? bg : "#f1f5f9", color: done ? color : C.gray, border: `1.5px solid ${done ? color : C.border}`, borderRadius: 99, padding: "5px 14px", fontSize: 11, fontWeight: 700, transition: "all .2s" } }, done ? `✓ ${label}` : `○ ${label}`);
       })
     )
@@ -804,12 +820,25 @@ function AutoAlertas({ data }) {
   const alerts = useMemo(() => {
     const list = [];
     const tot = data.abandonadas?.totals || {};
+    const ivs = data.abandonadas?.intervals || [];
+    const meta = data.abandonadas?.meta || data.agentes?.meta || {};
+
+    // Calcular umbral dinámico de abandono por hora basado en el volumen total del turno
+    const totalHoras = ivs.length || 1;
+    const promAbandPorHora = ivs.length ? ivs.reduce((s,i) => s + i.abandonadas, 0) / ivs.length : 0;
+    const umbralAbandHora = Math.max(30, Math.round(promAbandPorHora * 2));
+
     const pctAb = tot.ofrecidas ? (tot.abandonadas / tot.ofrecidas) * 100 : 0;
     if (pctAb > 25) list.push({ type: "red",    msg: `Tasa de abandono elevada: ${pctAb.toFixed(1)}% (supera el umbral del 25%)` });
     if (pctAb >= 15 && pctAb <= 25) list.push({ type: "yellow", msg: `Tasa de abandono moderada: ${pctAb.toFixed(1)}% — monitorear` });
-    if (data.abandonadas?.intervals) {
-      const worst = [...data.abandonadas.intervals].sort((a,b) => b.abandonadas - a.abandonadas)[0];
-      if (worst && worst.abandonadas > 80) list.push({ type: "orange", msg: `Hora pico de abandono: ${worst.hora} hs (${worst.abandonadas} abandonadas)` });
+
+    // Horario del turno
+    const scheduleStr = meta.horaDesde && meta.horaHasta ? ` (turno ${meta.horaDesde.slice(0,5)} → ${meta.horaHasta.slice(0,5)})` : "";
+
+    if (ivs.length) {
+      const worst = [...ivs].sort((a,b) => b.abandonadas - a.abandonadas)[0];
+      if (worst && worst.abandonadas > umbralAbandHora)
+        list.push({ type: "orange", msg: `Hora pico de abandono${scheduleStr}: ${worst.hora} hs (${worst.abandonadas} abandonadas — ${Math.round((worst.abandonadas / worst.ofrecidas || 0) * 100)}% del intervalo)` });
     }
     if (data.agentes?.agents) {
       const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
@@ -838,10 +867,12 @@ function AutoAlertas({ data }) {
 function ViewHoras({ data }) {
   const ivs = data.abandonadas?.intervals || [];
   const tot = data.abandonadas?.totals || {};
+  const meta = data.abandonadas?.meta || data.agentes?.meta || {};
+  const scheduleLabel = buildScheduleLabel(meta);
   if (!ivs.length) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá el archivo de Abandonadas para ver este módulo.");
 
   return React.createElement("div", null,
-    React.createElement(SectionTitle, { num: "2", title: "Llamadas por Hora", sub: "Análisis detallado por intervalo horario" }),
+    React.createElement(SectionTitle, { num: "2", title: "Llamadas por Hora", sub: scheduleLabel ? `Turno: ${scheduleLabel} — ${ivs.length} intervalos` : "Análisis detallado por intervalo horario" }),
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 } },
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 14 } }, "Atendidas vs Abandonadas"),
@@ -1246,7 +1277,7 @@ function App() {
     };
   }, []);
 
-  // Auto-guardar informe cuando los 3 archivos están cargados
+  // Auto-guardar informe cuando los 5 archivos están cargados
   useEffect(() => {
     if (!hasRequiredUploads(loaded)) return;
     const meta = files.abandonadas?.meta || files.agentes?.meta || {};
@@ -1380,16 +1411,18 @@ function App() {
         React.createElement("div", { style: { textAlign: "center", marginBottom: 32, paddingTop: 20 } },
           React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "🚨"),
           React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, marginBottom: 6 } }, "Sistema de Informes SAE 911"),
-          React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los CSV exportados del sistema para generar el informe automáticamente"),
+          React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los 5 CSV exportados del sistema para generar el informe automáticamente"),
           !user && getAuth() && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.yellow, fontWeight: 700 } }, "⚠️ Inicia sesión con Google para que tu correo quede registrado en Firestore."),
           user && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.green, fontWeight: 600 } }, `✓ Sesión activa: ${user.displayName || user.email} — los informes se sincronizan en la nube`)
         ),
         React.createElement(UploadZone, { onFiles: handleFiles, loaded }),
-        React.createElement("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 } },
+        React.createElement("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14 } },
           [
-            { icon: "📊", title: "Resumen con gráficos", desc: "Vista ejecutiva con KPIs y alertas automáticas" },
-            { icon: "📞", title: "Análisis por hora",    desc: "Volumen, abandono y atención en cada intervalo" },
-            { icon: "🚓", title: "Ranking de distritos", desc: "Tiempo de despacho y efectividad por zona" },
+            { icon: "👤", title: "Llamadas por Agente",       desc: "Actividad, disponibilidad y abandonadas cabina por operador" },
+            { icon: "📞", title: "Abandonadas por Hora",      desc: "Volumen, abandono y atención en cada intervalo del turno" },
+            { icon: "🚗", title: "Inicio Despacho",           desc: "Tiempo desde inicio hasta asignación por distrito" },
+            { icon: "🔄", title: "Derivación → Inicio",       desc: "Tiempo desde derivación hasta inicio de despacho" },
+            { icon: "⏱",  title: "Creación/Derivación",       desc: "Tiempo desde creación del evento hasta despacho" },
           ].map(({ icon, title, desc }) =>
             React.createElement("div", { key: title, style: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", textAlign: "center" } },
               React.createElement("div", { style: { fontSize: 28, marginBottom: 8 } }, icon),
