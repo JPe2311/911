@@ -494,7 +494,7 @@ async function loadMensualFromFirestore() {
     return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() }));
   } catch (e) {
     console.error("Error loading monthly records:", e);
-    return [];
+    throw e; // Lanzar el error para que la UI lo capture
   }
 }
 
@@ -1348,16 +1348,25 @@ function ViewHistorial({ user }) {
 function ViewMensual({ user }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (user === undefined) return; // Esperar a que el estado de auth cargue
+    if (user === undefined) return;
     
-    loadMensualFromFirestore().then(res => {
-      setHistory(res);
-      setLoading(false);
-    });
+    setLoading(true);
+    setError(null);
+    loadMensualFromFirestore()
+      .then(res => {
+        setHistory(res);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setError("Error de permisos o conexión al cargar registros mensuales. Verificá las reglas de Firestore.");
+        setLoading(false);
+      });
   }, [user]);
 
   const handleMonthlyFile = async (e) => {
@@ -1377,11 +1386,11 @@ function ViewMensual({ user }) {
       const text = await file.text();
       const lines = parseLines(text);
       let totalOfrecidas = 0, totalContestadas = 0, totalAbandonadas = 0;
-      const dailyData = {}; // Para agrupar por día
+      const dailyData = {}; 
+      const hourlyData = []; // NUEVO: Para el heatmap
 
-      // Parsing asumiendo Columnas: Fecha; Hora; Ofrecidas; Contestadas; Abandonadas; ...
-      // Buscamos el header primero
-      let colIdx = { fecha: 0, ofrecidas: 2, contestadas: 3, abandonadas: 5 };
+      // Parsing asumiendo Columnas: Fecha; Hora; Ofrecidas; Contestadas; ...
+      let colIdx = { fecha: 0, hora: 1, ofrecidas: 2, contestadas: 3 };
       lines.forEach((line, idx) => {
         const cols = parseSemicolon(line);
         if (cols.length < 3) return;
@@ -1389,34 +1398,42 @@ function ViewMensual({ user }) {
           cols.forEach((c, i) => {
             const h = c.toLowerCase();
             if (h.includes("fecha")) colIdx.fecha = i;
+            if (h.includes("hora")) colIdx.hora = i;
             if (h.includes("ofrec")) colIdx.ofrecidas = i;
             if (h.includes("contest")) colIdx.contestadas = i;
-            if (h.includes("aband")) colIdx.abandonadas = i;
           });
           return;
         }
         
         const ofrec = parseInt(cols[colIdx.ofrecidas]) || 0;
         const cont = parseInt(cols[colIdx.contestadas]) || 0;
-        const aband = parseInt(cols[colIdx.abandonadas]) || 0;
         const fecha = cols[colIdx.fecha] || "";
+        const hora = (cols[colIdx.hora] || "").trim();
         
-        if (ofrec || cont || aband) {
+        if (ofrec || cont) {
           totalOfrecidas += ofrec;
           totalContestadas += cont;
-          totalAbandonadas += aband;
+          totalAbandonadas += (ofrec - cont);
+          
           if (fecha) {
-            if (!dailyData[fecha]) dailyData[fecha] = { fecha, ofrecidas: 0, contestadas: 0, abandonadas: 0 };
+            // Stats por día (Resumen)
+            if (!dailyData[fecha]) dailyData[fecha] = { fecha, ofrecidas: 0, contestadas: 0 };
             dailyData[fecha].ofrecidas += ofrec;
             dailyData[fecha].contestadas += cont;
-            dailyData[fecha].abandonadas += aband;
+            
+            // Stats por hora (Heatmap) - Guardar solo lo esencial d:dia, h:hora, o:ofrec, c:cont
+            const dayNum = parseInt(fecha.split(/[-/]/)[0]) || 0; // Asumimos DD-MM-YYYY o DD/MM/YYYY
+            if (dayNum > 0) {
+              hourlyData.push({ d: dayNum, h: hora, o: ofrec, c: cont });
+            }
           }
         }
       });
 
       const report = {
         resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
-        detalles: Object.values(dailyData).sort((a,b) => a.fecha.localeCompare(b.fecha))
+        detalles: hourlyData, // Ahora guardamos los detalles por hora
+        dailyAggr: Object.values(dailyData).sort((a,b) => a.fecha.localeCompare(b.fecha))
       };
       const meta = { month: monthStr, year, monthNum, label: `${monthStr} ${year}`.toUpperCase() };
       
@@ -1443,6 +1460,11 @@ function ViewMensual({ user }) {
   }, [selectedMonths, history]);
 
   if (loading) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando histórico mensual...");
+  if (error) return React.createElement("div", { style: { padding: 40, textAlign: "center" } },
+    React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "⚠️"),
+    React.createElement("div", { style: { color: C.red, fontWeight: 700, marginBottom: 8 } }, error),
+    React.createElement("div", { style: { fontSize: 12, color: C.gray } }, "Asegurate de haber actualizado las Reglas de Seguridad en tu Consola de Firebase.")
+  );
 
   return React.createElement("div", null,
     React.createElement(SectionTitle, { num: "M", title: "Análisis Mensual Histórico", sub: "Comparativa de rendimiento por mes y año" }),
@@ -1459,7 +1481,7 @@ function ViewMensual({ user }) {
 
     history.length > 0 && React.createElement("div", null,
       React.createElement(Card, { style: { marginBottom: 20 } },
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Comparar Meses (Seleccioná varios)"),
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Búsqueda y Comparativa"),
         React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
           history.map(h => {
             const isSel = selectedMonths.includes(h.firestoreId);
@@ -1468,10 +1490,17 @@ function ViewMensual({ user }) {
         )
       ),
 
-      chartData && React.createElement(Card, { style: { marginBottom: 20 } },
+      chartData && React.createElement(Card, { style: { marginBottom: 24 } },
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 20 } }, "📈 Tendencia Comparativa"),
         React.createElement("div", { style: { height: 350 } }, React.createElement(ChartBar, { id: "chart-monthly-comp", data: chartData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } } }))
       ),
+
+      // SECCIÓN: DETALLE MENSUAL (MAPA DE CALOR)
+      selectedMonths.length === 1 && (() => {
+        const h = history.find(x => x.firestoreId === selectedMonths[0]);
+        if (!h || !h.detalles) return null;
+        return React.createElement(HeatmapSection, { report: h });
+      })(),
 
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📋 Registros Mensuales"),
@@ -1499,6 +1528,103 @@ function ViewMensual({ user }) {
           )
         )
       )
+    )
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMPONENT: HEATMAP SECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function HeatmapSection({ report }) {
+  const [metric, setMetric] = useState("total"); // total (ofrecidas), cnt (contestadas), abd (abandonadas)
+  
+  // Procesar datos para la grilla
+  const grid = useMemo(() => {
+    const data = report.detalles || [];
+    const matrix = {}; // { hour: { day: value } }
+    let max = 0;
+
+    data.forEach(row => {
+      const h = (row.h || "00:00").substring(0, 2) + ":00";
+      const d = row.d;
+      let val = 0;
+      if (metric === "total") val = row.o || 0;
+      else if (metric === "cnt") val = row.c || 0;
+      else if (metric === "abd") val = (row.o || 0) - (row.c || 0);
+
+      if (!matrix[h]) matrix[h] = {};
+      matrix[h][d] = (matrix[h][d] || 0) + val;
+      if (matrix[h][d] > max) max = matrix[h][d];
+    });
+
+    return { matrix, max };
+  }, [report, metric]);
+
+  const hours = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, "0")}:00`);
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+  return React.createElement(Card, { style: { marginBottom: 24, padding: "20px" } },
+    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
+      React.createElement("div", null,
+        React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: C.navy } }, `🔥 Análisis Crítico: ${report.meta.label}`),
+        React.createElement("div", { style: { fontSize: 12, color: C.gray } }, "Mapa de calor por hora y día")
+      ),
+      React.createElement("div", { style: { display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 4, gap: 4 } },
+        [
+          { id: "total", label: "Ofrecidas" },
+          { id: "cnt", label: "Contestadas" },
+          { id: "abd", label: "Abandonadas" }
+        ].map(m => 
+          React.createElement("button", { 
+            key: m.id, 
+            onClick: () => setMetric(m.id),
+            style: { 
+              padding: "6px 12px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: metric === m.id ? "#fff" : "transparent",
+              color: metric === m.id ? C.blue : C.gray,
+              boxShadow: metric === m.id ? "0 2px 4px rgba(0,0,0,0.05)" : "none"
+            }
+          }, m.label)
+        )
+      )
+    ),
+
+    React.createElement("div", { style: { overflowX: "auto" } },
+      React.createElement("div", { style: { minWidth: 800 } },
+        // Header de días
+        React.createElement("div", { style: { display: "flex", marginBottom: 4 } },
+          React.createElement("div", { style: { width: 45 } }),
+          days.map(d => React.createElement("div", { key: d, style: { flex: 1, textAlign: "center", fontSize: 9, color: C.gray, fontWeight: 600 } }, d))
+        ),
+        // Filas de horas
+        hours.map(h => 
+          React.createElement("div", { key: h, style: { display: "flex", gap: 2, marginBottom: 2 } },
+            React.createElement("div", { style: { width: 45, fontSize: 9, color: C.gray, fontWeight: 700, display: "flex", alignItems: "center" } }, h),
+            days.map(d => {
+              const val = grid.matrix[h]?.[d] || 0;
+              const intensity = grid.max > 0 ? (val / grid.max) : 0;
+              // Escala de color: de gris claro a rojo intenso
+              const bg = val === 0 ? "#f8fafc" : `rgba(220, 38, 38, ${0.1 + intensity * 0.9})`;
+              const color = intensity > 0.6 ? "#fff" : C.navy;
+              
+              return React.createElement("div", { 
+                key: d, 
+                title: `Día ${d}, ${h}: ${val} ${metric}`,
+                style: { 
+                  flex: 1, height: 24, background: bg, borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: color,
+                  transition: "all .2s"
+                } 
+              }, val > 0 ? val : "");
+            })
+          )
+        )
+      )
+    ),
+    
+    React.createElement("div", { style: { marginTop: 16, display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: C.gray } },
+      React.createElement("span", null, "Menos crítico"),
+      React.createElement("div", { style: { flex: 1, height: 8, borderRadius: 4, background: `linear-gradient(to right, #f8fafc, #dc2626)` } }),
+      React.createElement("span", null, "Más crítico")
     )
   );
 }
