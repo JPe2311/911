@@ -1440,8 +1440,18 @@ function App() {
 
   return React.createElement("div", { style: { minHeight: "100vh", background: C.bg } },
 
+    // PRINT HEADER
+    hasData && view !== "upload" && React.createElement("div", { className: "print-only print-flex", style: { justifyContent: "space-between", alignItems: "center", borderBottom: `2px solid ${C.navy}`, padding: "20px 32px 16px", marginBottom: 24 } },
+      React.createElement("img", { src: "src/img/dirlogo.png", alt: "Dir Logo", style: { height: 60 } }),
+      React.createElement("div", { style: { textAlign: "center" } },
+        React.createElement("div", { style: { fontSize: 24, fontWeight: 900, color: C.navy, textTransform: "uppercase" } }, "Reporte"),
+        React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4, fontWeight: 600 } }, turnoLabel || new Date().toLocaleString("es-ES"))
+      ),
+      React.createElement("img", { src: "src/img/logo_geston.png", alt: "Gestión Logo", style: { height: 60 } })
+    ),
+
     // TOPBAR
-    React.createElement("div", { style: { background: `linear-gradient(90deg, ${C.navy} 0%, ${C.blue} 100%)`, padding: "0 28px", display: "flex", alignItems: "center", gap: 0, height: 56, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } },
+    React.createElement("div", { className: "no-print", style: { background: `linear-gradient(90deg, ${C.navy} 0%, ${C.blue} 100%)`, padding: "0 28px", display: "flex", alignItems: "center", gap: 0, height: 56, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } },
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginRight: 32 } },
         React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 48 } }),
         React.createElement("div", null,
