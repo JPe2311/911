@@ -743,15 +743,15 @@ function ViewResumen({ data }) {
     };
   }, [dp]);
 
-  const efectivDonut = useMemo(() => {
-    // Usar despachoInicio para efectividad (tiene total/efectiva)
-    const allDp = [...(dpI || []), ...(dpD || []), ...(dpC || [])];
-    if (!allDp.length) return null;
-    const totalCartas = allDp.reduce((s, d) => s + (d.total || 0), 0);
-    const totalEfect = allDp.reduce((s, d) => s + (d.efectiva || 0), 0);
-    if (!totalCartas) return null;
-    return { labels: ["Efectivas", "No Efectivas"], datasets: [{ data: [totalEfect, totalCartas - totalEfect], backgroundColor: [C.green, C.red], borderWidth: 0, hoverOffset: 4 }] };
-  }, [dpI, dpD, dpC]);
+  const agentsRanking = useMemo(() => {
+    if (!ag?.agents?.length) return { top: [], bot: [] };
+    const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
+    return {
+      top: main.slice(0, 3),
+      bot: [...main].reverse().slice(0, 3),
+      total: main.length
+    };
+  }, [ag]);
 
   const gaugeData = useMemo(() => {
     const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
@@ -798,17 +798,27 @@ function ViewResumen({ data }) {
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Desempeño por Operador"),
         React.createElement("div", { style: { height: 220 } }, React.createElement(ChartBar, { id: "chart-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
       ),
-      efectivDonut && React.createElement(Card, null,
-        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "✅ Efectividad Despacho"),
-        (() => {
-          const allDp = [...(dpI || []), ...(dpD || []), ...(dpC || [])]; const t2 = allDp.reduce((s, d) => s + (d.total || 0), 0); const ef = allDp.reduce((s, d) => s + (d.efectiva || 0), 0); const pct = t2 > 0 ? ((ef / t2) * 100).toFixed(1) : "0"; return React.createElement(React.Fragment, null,
-            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total cartas: ${t2}`),
-            React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-efectiv", data: efectivDonut, options: donutOpts })),
-            React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
-              React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg })
-            )
-          );
-        })()
+      agentsRanking.top.length > 0 && React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 16 } }, "🏆 Ranking del Turno"),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: 12 } },
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.green, marginBottom: 8, textTransform: "uppercase" } }, "🥇 Top 3 - Mejores"),
+            agentsRanking.top.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 10px", background: C.greenBg, borderRadius: 8, border: `1px solid #c6f6d5` } },
+              React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
+              React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.nombre.split(",")[0]),
+              React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.green } }, a.contestadas)
+            ))
+          ),
+          React.createElement("div", { style: { height: 1, background: C.border, margin: "4px 0" } }),
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.red, marginBottom: 8, textTransform: "uppercase" } }, "⚠️ Bottom 3 - Críticos"),
+            agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "8px 12px", background: C.redBg, borderRadius: 8, border: `1px solid #fed7d7` } },
+              React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: C.red, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
+              React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.nombre.split(",")[0]),
+              React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.red } }, a.contestadas)
+            ))
+          )
+        )
       )
     ),
     gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
