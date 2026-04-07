@@ -464,6 +464,40 @@ async function deleteReportFromFirestore(firestoreId) {
   }
 }
 
+// ─── Mensual Firestore Helpers ──────────────────
+async function saveMensualToFirestore(data, meta, user) {
+  const db = getDB();
+  if (!db || !user?.uid) return null;
+  const { addDoc, collection, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+  try {
+    const docRef = await addDoc(collection(db, "analisis_mensual"), {
+      ...data,
+      meta,
+      uid: user.uid,
+      usuario: user.displayName || user.email || user.uid,
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (e) {
+    console.error("Error saving monthly data:", e);
+    return null;
+  }
+}
+
+async function loadMensualFromFirestore() {
+  const db = getDB();
+  if (!db) return [];
+  const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+  try {
+    const q = query(collection(db, "analisis_mensual"), orderBy("meta.year", "desc"), orderBy("meta.monthNum", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() }));
+  } catch (e) {
+    console.error("Error loading monthly records:", e);
+    return [];
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  AUTH HELPERS
 // ════════════════════════════════════════════════════════════════════════════
@@ -1309,6 +1343,165 @@ function ViewHistorial({ user }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  VIEW: MENSUAL
+// ════════════════════════════════════════════════════════════════════════════
+function ViewMensual({ user }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMonths, setSelectedMonths] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    loadMensualFromFirestore().then(res => {
+      setHistory(res);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleMonthlyFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const fileName = file.name.toLowerCase();
+    const match = fileName.match(/(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)_(\d{4})/i);
+    if (!match) { alert("Nombre de archivo inválido. Use formato MES_AÑO.csv (ej: marzo_2026.csv)"); setUploading(false); return; }
+    
+    const monthStr = match[1];
+    const year = parseInt(match[2]);
+    const months = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+    const monthNum = months.indexOf(monthStr.toLowerCase()) + 1;
+
+    try {
+      const text = await file.text();
+      const lines = parseLines(text);
+      let totalOfrecidas = 0, totalContestadas = 0, totalAbandonadas = 0;
+      const dailyData = {}; // Para agrupar por día
+
+      // Parsing asumiendo Columnas: Fecha; Hora; Ofrecidas; Contestadas; Abandonadas; ...
+      // Buscamos el header primero
+      let colIdx = { fecha: 0, ofrecidas: 2, contestadas: 3, abandonadas: 5 };
+      lines.forEach((line, idx) => {
+        const cols = parseSemicolon(line);
+        if (cols.length < 3) return;
+        if (cols.some(c => /ofrec/i.test(c)) && idx < 5) {
+          cols.forEach((c, i) => {
+            const h = c.toLowerCase();
+            if (h.includes("fecha")) colIdx.fecha = i;
+            if (h.includes("ofrec")) colIdx.ofrecidas = i;
+            if (h.includes("contest")) colIdx.contestadas = i;
+            if (h.includes("aband")) colIdx.abandonadas = i;
+          });
+          return;
+        }
+        
+        const ofrec = parseInt(cols[colIdx.ofrecidas]) || 0;
+        const cont = parseInt(cols[colIdx.contestadas]) || 0;
+        const aband = parseInt(cols[colIdx.abandonadas]) || 0;
+        const fecha = cols[colIdx.fecha] || "";
+        
+        if (ofrec || cont || aband) {
+          totalOfrecidas += ofrec;
+          totalContestadas += cont;
+          totalAbandonadas += aband;
+          if (fecha) {
+            if (!dailyData[fecha]) dailyData[fecha] = { fecha, ofrecidas: 0, contestadas: 0, abandonadas: 0 };
+            dailyData[fecha].ofrecidas += ofrec;
+            dailyData[fecha].contestadas += cont;
+            dailyData[fecha].abandonadas += aband;
+          }
+        }
+      });
+
+      const report = {
+        resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
+        detalles: Object.values(dailyData).sort((a,b) => a.fecha.localeCompare(b.fecha))
+      };
+      const meta = { month: monthStr, year, monthNum, label: `${monthStr} ${year}`.toUpperCase() };
+      
+      const id = await saveMensualToFirestore(report, meta, user);
+      if (id) {
+        setHistory([{ firestoreId: id, ...report, meta, uid: user.uid }, ...history]);
+        alert("¡Archivo mensual procesado y guardado correctamente!");
+      }
+    } catch (e) { console.error(e); alert("Error al procesar el archivo."); }
+    setUploading(false);
+  };
+
+  const chartData = useMemo(() => {
+    if (!selectedMonths.length) return null;
+    const selected = history.filter(h => selectedMonths.includes(h.firestoreId)).reverse();
+    return {
+      labels: selected.map(s => s.meta.label),
+      datasets: [
+        { label: "Ofrecidas", data: selected.map(s => s.resumen.totalOfrecidas), backgroundColor: C.mid, borderRadius: 5 },
+        { label: "Contestadas", data: selected.map(s => s.resumen.totalContestadas), backgroundColor: C.green, borderRadius: 5 },
+        { label: "Abandonadas", data: selected.map(s => s.resumen.totalAbandonadas), backgroundColor: C.red, borderRadius: 5 }
+      ]
+    };
+  }, [selectedMonths, history]);
+
+  if (loading) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando histórico mensual...");
+
+  return React.createElement("div", null,
+    React.createElement(SectionTitle, { num: "M", title: "Análisis Mensual Histórico", sub: "Comparativa de rendimiento por mes y año" }),
+    
+    React.createElement(Card, { style: { marginBottom: 20, textAlign: "center", padding: "30px" } },
+      React.createElement("div", { style: { fontSize: 32, marginBottom: 12 } }, "📊"),
+      React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: C.navy, marginBottom: 8 } }, "Cargar nuevo mes"),
+      React.createElement("div", { style: { fontSize: 12, color: C.gray, marginBottom: 20 } }, "Seleccioná el consolidado mensual (EJ: MARZO_2026.csv)"),
+      React.createElement("div", { style: { position: "relative", display: "inline-block" } },
+        React.createElement("button", { disabled: uploading, style: { background: C.blue, color: "#fff", border: "none", borderRadius: 8, padding: "10px 24px", fontWeight: 700, cursor: uploading ? "wait" : "pointer" } }, uploading ? "Procesando..." : "📁 Seleccionar CSV Mensual"),
+        React.createElement("input", { type: "file", accept: ".csv", onChange: handleMonthlyFile, style: { position: "absolute", inset: 0, opacity: 0, cursor: "pointer" } })
+      )
+    ),
+
+    history.length > 0 && React.createElement("div", null,
+      React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Comparar Meses (Seleccioná varios)"),
+        React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap" } },
+          history.map(h => {
+            const isSel = selectedMonths.includes(h.firestoreId);
+            return React.createElement("button", { key: h.firestoreId, onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]), style: { padding: "8px 16px", borderRadius: 8, border: `2px solid ${isSel ? C.blue : C.border}`, background: isSel ? C.light : "#fff", color: isSel ? C.blue : C.gray, fontWeight: 700, fontSize: 11, cursor: "pointer" } }, h.meta.label);
+          })
+        )
+      ),
+
+      chartData && React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 20 } }, "📈 Tendencia Comparativa"),
+        React.createElement("div", { style: { height: 350 } }, React.createElement(ChartBar, { id: "chart-monthly-comp", data: chartData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } } }))
+      ),
+
+      React.createElement(Card, null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📋 Registros Mensuales"),
+        React.createElement("div", { style: { overflowX: "auto" } },
+          React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+            React.createElement("thead", null,
+              React.createElement("tr", { style: { background: C.blue, color: "#fff" } },
+                ["Mes/Año", "Ofrecidas", "Contestadas", "Abandonadas", "% Atenc.", "% Aband."].map(h => React.createElement("th", { key: h, style: { padding: "10px", textAlign: "center" } }, h))
+              )
+            ),
+            React.createElement("tbody", null,
+              history.map((h, i) => {
+                const pctAt = h.resumen.totalOfrecidas ? (h.resumen.totalContestadas / h.resumen.totalOfrecidas * 100).toFixed(1) : 0;
+                const pctAb = h.resumen.totalOfrecidas ? (h.resumen.totalAbandonadas / h.resumen.totalOfrecidas * 100).toFixed(1) : 0;
+                return React.createElement("tr", { key: i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                  React.createElement("td", { style: { padding: "10px", fontWeight: 800, textAlign: "center", color: C.navy } }, h.meta.label),
+                  React.createElement("td", { style: { padding: "10px", textAlign: "center" } }, h.resumen.totalOfrecidas.toLocaleString()),
+                  React.createElement("td", { style: { padding: "10px", textAlign: "center", color: C.green, fontWeight: 700 } }, h.resumen.totalContestadas.toLocaleString()),
+                  React.createElement("td", { style: { padding: "10px", textAlign: "center", color: C.red, fontWeight: 700 } }, h.resumen.totalAbandonadas.toLocaleString()),
+                  React.createElement("td", { style: { padding: "10px", textAlign: "center" } }, React.createElement(Badge, { label: `${pctAt}%`, color: C.green, bg: C.greenBg })),
+                  React.createElement("td", { style: { padding: "10px", textAlign: "center" } }, React.createElement(Badge, { label: `${pctAb}%`, color: C.red, bg: C.redBg }))
+                );
+              })
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
@@ -1445,6 +1638,7 @@ function App() {
     { id: "horas", label: "📞 Por Hora", avail: !!files.abandonadas },
     { id: "operadores", label: "👤 Operadores", avail: !!files.agentes },
     { id: "despacho", label: "🚓 Despacho", avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
+    { id: "mensual", label: "📈 Mensual", avail: true },
     { id: "historial", label: "📋 Historial", avail: true },
   ];
 
@@ -1499,7 +1693,19 @@ function App() {
           React.createElement("div", { style: { fontSize: 32, fontWeight: 800, marginBottom: 10 } }, "Sistema de Informes de Gestión y Calidad"),
           React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los 5 CSV exportados del sistema para generar el informe automáticamente"),
           !user && getAuth() && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.yellow, fontWeight: 700 } }, "⚠️ Inicia sesión con Google para que tu correo quede registrado en Firestore."),
-          user && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.green, fontWeight: 600 } }, `✓ Sesión activa: ${user.displayName || user.email} — los informes se sincronizan en la nube`)
+          user && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.green, fontWeight: 600 } }, `✓ Sesión activa: ${user.displayName || user.email} — los informes se sincronizan en la nube`),
+          
+          React.createElement("div", { style: { marginTop: 30, display: "flex", justifyContent: "center", gap: 16 } },
+            React.createElement("button", { 
+              onClick: () => setView("mensual"),
+              style: { background: `linear-gradient(135deg, ${C.blue} 0%, ${C.mid} 100%)`, color: "#fff", border: "none", borderRadius: 10, padding: "14px 28px", fontSize: 15, fontWeight: 800, cursor: "pointer", boxShadow: "0 10px 25px rgba(27,58,107,0.3)", display: "flex", alignItems: "center", gap: 10, transition: "transform .2s" },
+              onMouseOver: e => e.currentTarget.style.transform = "scale(1.03)",
+              onMouseOut: e => e.currentTarget.style.transform = "scale(1)"
+            }, 
+              React.createElement("span", { style: { fontSize: 20 } }, "📊"),
+              "Análisis Mensual"
+            )
+          )
         ),
         React.createElement(UploadZone, { onFiles: handleFiles, loaded }),
         React.createElement("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14 } },
@@ -1523,6 +1729,7 @@ function App() {
       view === "horas" && React.createElement(ViewHoras, { data: files }),
       view === "operadores" && React.createElement(ViewOperadores, { data: files }),
       view === "despacho" && React.createElement(ViewDespacho, { data: files }),
+      view === "mensual" && React.createElement(ViewMensual, { user }),
       view === "historial" && React.createElement(ViewHistorial, { user }),
     )
   );
