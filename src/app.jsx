@@ -1489,7 +1489,7 @@ function App() {
       view === "upload" && React.createElement("div", null,
         React.createElement("div", { style: { textAlign: "center", marginBottom: 32, paddingTop: 20 } },
           React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "🚨"),
-          React.createElement("img", { src: "img/logo_geston.png", alt: "Logo Geston", style: { height: 80, marginBottom: 16 } }),
+          React.createElement("img", { src: "<src/img/logo_geston.png", alt: "Logo Geston", style: { height: 80, marginBottom: 16 } }),
           React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "Sistema de Informes de Gestión y Calidad"),
           React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los 5 CSV exportados del sistema para generar el informe automáticamente"),
           !user && getAuth() && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.yellow, fontWeight: 700 } }, "⚠️ Inicia sesión con Google para que tu correo quede registrado en Firestore."),
