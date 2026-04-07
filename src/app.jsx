@@ -9,29 +9,29 @@ const { useState, useCallback, useMemo, useEffect, useRef } = React;
 // ════════════════════════════════════════════════════════════════════════════
 //  FIREBASE — referencias globales (inyectadas por index.html)
 // ════════════════════════════════════════════════════════════════════════════
-const getDB   = () => window.db   || null;
+const getDB = () => window.db || null;
 const getAuth = () => window.auth || null;
 
 // ════════════════════════════════════════════════════════════════════════════
 //  THEME
 // ════════════════════════════════════════════════════════════════════════════
 const C = {
-  navy:    "#0f2444",
-  blue:    "#1B3A6B",
-  mid:     "#2E5FA3",
-  light:   "#D6E4F0",
-  green:   "#16a34a",
+  navy: "#0f2444",
+  blue: "#1B3A6B",
+  mid: "#2E5FA3",
+  light: "#D6E4F0",
+  green: "#16a34a",
   greenBg: "#D1FAE5",
-  red:     "#dc2626",
-  redBg:   "#FEE2E2",
-  orange:  "#ea580c",
-  orBg:    "#FFEDD5",
-  yellow:  "#d97706",
-  ylBg:    "#FEF3C7",
-  gray:    "#64748b",
-  border:  "#e2e8f0",
-  bg:      "#f0f4f8",
-  card:    "#ffffff",
+  red: "#dc2626",
+  redBg: "#FEE2E2",
+  orange: "#ea580c",
+  orBg: "#FFEDD5",
+  yellow: "#d97706",
+  ylBg: "#FEF3C7",
+  gray: "#64748b",
+  border: "#e2e8f0",
+  bg: "#f0f4f8",
+  card: "#ffffff",
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -131,20 +131,20 @@ function parseAgentes(raw) {
       if (nombre === "Total" || nombre === "Promedio") continue;
       agents.push({
         nombre,
-        ofrecidas:        parseInt(cols[idx.ofrecidas])  || 0,
-        contestadas:      parseInt(cols[idx.contestadas])  || 0,
-        abandonadas:      parseInt(cols[idx.abandonadas])  || 0,
-        tiempoConectado:  cols[idx.tiempoConectado]  || "0:00:00",
-        tiempoAusente:    cols[idx.tiempoAusente] || "0:00:00",
-        disponibilidad:   parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
+        ofrecidas: parseInt(cols[idx.ofrecidas]) || 0,
+        contestadas: parseInt(cols[idx.contestadas]) || 0,
+        abandonadas: parseInt(cols[idx.abandonadas]) || 0,
+        tiempoConectado: cols[idx.tiempoConectado] || "0:00:00",
+        tiempoAusente: cols[idx.tiempoAusente] || "0:00:00",
+        disponibilidad: parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
       });
       continue;
     }
 
     if (first === "Total" && cols[1] === "-") {
-      meta.totalOfrecidas   = parseInt(cols[idx.ofrecidas]) || parseInt(cols[2]) || 0;
+      meta.totalOfrecidas = parseInt(cols[idx.ofrecidas]) || parseInt(cols[2]) || 0;
       meta.totalContestadas = parseInt(cols[idx.contestadas]) || parseInt(cols[3]) || 0;
-      meta.totalAbanCabina  = parseInt(cols[idx.abandonadas]) || parseInt(cols[5]) || 0;
+      meta.totalAbanCabina = parseInt(cols[idx.abandonadas]) || parseInt(cols[5]) || 0;
     }
   }
 
@@ -165,21 +165,21 @@ function parseAbandonadas(raw) {
     const interval = cols[0] ? cols[0].trim() : "";
     if (interval.includes(" - ") && !isNaN(parseInt(cols[3]))) {
       intervals.push({
-        label:        interval,
-        hora:         interval.split(" - ")[0].trim(),
-        cola:         parseInt(cols[1]) || 0,
-        cabina:       parseInt(cols[2]) || 0,
-        abandonadas:  parseInt(cols[3]) || 0,
-        ofrecidas:    parseInt(cols[4]) || 0,
-        contestadas:  parseInt(cols[5]) || 0,
+        label: interval,
+        hora: interval.split(" - ")[0].trim(),
+        cola: parseInt(cols[1]) || 0,
+        cabina: parseInt(cols[2]) || 0,
+        abandonadas: parseInt(cols[3]) || 0,
+        ofrecidas: parseInt(cols[4]) || 0,
+        contestadas: parseInt(cols[5]) || 0,
       });
     }
     if (interval === "Total") {
       totals = {
-        cola:        parseInt(cols[1]) || 0,
-        cabina:      parseInt(cols[2]) || 0,
+        cola: parseInt(cols[1]) || 0,
+        cabina: parseInt(cols[2]) || 0,
         abandonadas: parseInt(cols[3]) || 0,
-        ofrecidas:   parseInt(cols[4]) || 0,
+        ofrecidas: parseInt(cols[4]) || 0,
         contestadas: parseInt(cols[5]) || 0,
       };
     }
@@ -225,15 +225,15 @@ function parseDespacho(raw, type = "despacho") {
     });
   }
 
-  if (type === "despacho-inicio"     && idx.tiempo1 < 0) idx.tiempo1 = 1;
+  if (type === "despacho-inicio" && idx.tiempo1 < 0) idx.tiempo1 = 1;
   if (type === "despacho-derivacion" && idx.tiempo2 < 0) idx.tiempo2 = 1;
-  if (type === "despacho-creacion"   && idx.tiempo3 < 0) idx.tiempo3 = 1;
-  if (type === "despacho"            && idx.tiempo1 < 0) idx.tiempo1 = 1;
+  if (type === "despacho-creacion" && idx.tiempo3 < 0) idx.tiempo3 = 1;
+  if (type === "despacho" && idx.tiempo1 < 0) idx.tiempo1 = 1;
 
   // Columna de tiempo principal segun el tipo de archivo
   const tiempoIdx = type === "despacho-derivacion" ? idx.tiempo2
-                  : type === "despacho-creacion"   ? idx.tiempo3
-                  : idx.tiempo1;
+    : type === "despacho-creacion" ? idx.tiempo3
+      : idx.tiempo1;
 
   // Limpiar el nombre de distrito: eliminar cualquier texto de tiempo que pueda quedar pegado
   const cleanNombre = raw => {
@@ -256,13 +256,13 @@ function parseDespacho(raw, type = "despacho") {
     const nombre = cleanNombre(rawNombre);
     if (!nombre) continue;
 
-    const tiempoStr  = tiempoIdx >= 0 ? (cols[tiempoIdx]    || "0:00").trim() : "0:00";
+    const tiempoStr = tiempoIdx >= 0 ? (cols[tiempoIdx] || "0:00").trim() : "0:00";
     const tiempo1Str = idx.tiempo1 >= 0 ? (cols[idx.tiempo1] || "0:00").trim() : "0:00";
     const tiempo2Str = idx.tiempo2 >= 0 ? (cols[idx.tiempo2] || "0:00").trim() : "0:00";
     const tiempo3Str = idx.tiempo3 >= 0 ? (cols[idx.tiempo3] || "0:00").trim() : "0:00";
-    const total    = idx.total    >= 0 ? parseInt(cols[idx.total])    || 0 : 0;
+    const total = idx.total >= 0 ? parseInt(cols[idx.total]) || 0 : 0;
     const efectiva = idx.efectiva >= 0 ? parseInt(cols[idx.efectiva]) || 0 : 0;
-    const tiempoSec  = parseTimeToSeconds(tiempoStr);
+    const tiempoSec = parseTimeToSeconds(tiempoStr);
     const tiempo1Sec = parseTimeToSeconds(tiempo1Str);
     const tiempo2Sec = parseTimeToSeconds(tiempo2Str);
     const tiempo3Sec = parseTimeToSeconds(tiempo3Str);
@@ -314,7 +314,7 @@ function buildScheduleLabel(meta) {
   const { horaDesde, horaHasta, fechaDesde, fechaHasta } = meta;
   if (!horaDesde && !horaHasta) return fechaDesde || "";
   const from = horaDesde ? horaDesde.slice(0, 5) : "";
-  const to   = horaHasta ? horaHasta.slice(0, 5) : "";
+  const to = horaHasta ? horaHasta.slice(0, 5) : "";
   const fDate = fechaDesde || "";
   const tDate = fechaHasta && fechaHasta !== fechaDesde ? ` ${fechaHasta}` : "";
   return `${fDate} ${from} → ${tDate} ${to}`.trim();
@@ -358,29 +358,29 @@ async function saveReportToFirestore(files, meta, user) {
   const userDisplayName = user.displayName || null;
   const userProviderId = user.providerData?.[0]?.providerId || null;
 
-  const agentesData    = files?.agentes;
+  const agentesData = files?.agentes;
   const abandonadasData = files?.abandonadas;
-  const despachoInicio      = files?.despachoInicio     || [];
-  const despachoDerivacion  = files?.despachoDerivacion || [];
-  const despachoCreacion    = files?.despachoCreacion   || [];
+  const despachoInicio = files?.despachoInicio || [];
+  const despachoDerivacion = files?.despachoDerivacion || [];
+  const despachoCreacion = files?.despachoCreacion || [];
   let fullMeta = { ...meta };
   if (agentesData?.meta) fullMeta = { ...fullMeta, ...agentesData.meta };
 
-  const totalOfrecidas   = agentesData?.meta?.totalOfrecidas   || (agentesData?.agents ? agentesData.agents.reduce((s, a) => s + (a.ofrecidas || 0), 0) : 0);
+  const totalOfrecidas = agentesData?.meta?.totalOfrecidas || (agentesData?.agents ? agentesData.agents.reduce((s, a) => s + (a.ofrecidas || 0), 0) : 0);
   const totalContestadas = agentesData?.meta?.totalContestadas || (agentesData?.agents ? agentesData.agents.reduce((s, a) => s + (a.contestadas || 0), 0) : 0);
-  const totalAbandonadas = agentesData?.meta?.totalAbanCabina  || (abandonadasData?.totals?.abandonadas || (abandonadasData?.intervals ? abandonadasData.intervals.reduce((s, i) => s + (i.abandonadas || 0), 0) : 0));
+  const totalAbandonadas = agentesData?.meta?.totalAbanCabina || (abandonadasData?.totals?.abandonadas || (abandonadasData?.intervals ? abandonadasData.intervals.reduce((s, i) => s + (i.abandonadas || 0), 0) : 0));
 
   const turnoLabel = generateTurnoLabel(fullMeta);
 
   const report = {
-    id:            generateReportId(),
-    token:         generateToken(),
-    uid:           uid,
-    usuario:       userDisplayName || userEmail || uid,
+    id: generateReportId(),
+    token: generateToken(),
+    uid: uid,
+    usuario: userDisplayName || userEmail || uid,
     fechaGuardado: new Date().toISOString(),
-    turnoLabel:    turnoLabel,
+    turnoLabel: turnoLabel,
     turno: {
-      fecha:     fullMeta.fechaDesde || fullMeta.fecha || "",
+      fecha: fullMeta.fechaDesde || fullMeta.fecha || "",
       horaDesde: fullMeta.horaDesde || "",
       horaHasta: fullMeta.horaHasta || "",
     },
@@ -390,13 +390,13 @@ async function saveReportToFirestore(files, meta, user) {
       totalAbandonadas,
     },
     datos: {
-      agentes:             agentesData?.agents       || [],
-      abandonadas:         abandonadasData?.intervals || [],
+      agentes: agentesData?.agents || [],
+      abandonadas: abandonadasData?.intervals || [],
       despachoInicio,
       despachoDerivacion,
       despachoCreacion,
-      agentesResumen:      agentesData?.meta         || {},
-      abandonadasResumen:  abandonadasData?.totals    || {},
+      agentesResumen: agentesData?.meta || {},
+      abandonadasResumen: abandonadasData?.totals || {},
     },
   };
 
@@ -417,11 +417,11 @@ async function saveReportToFirestore(files, meta, user) {
       userProviderId,
       turnoLabel,
       archivos: [
-        agentesData     ? { nombre: "agentes",             tipo: "agentes",             filas: agentesData.agents?.length || 0 } : null,
-        abandonadasData ? { nombre: "abandonadas",         tipo: "abandonadas",         filas: abandonadasData.intervals?.length || 0 } : null,
-        despachoInicio.length  ? { nombre: "despacho-inicio",     tipo: "despacho-inicio",     filas: despachoInicio.length } : null,
+        agentesData ? { nombre: "agentes", tipo: "agentes", filas: agentesData.agents?.length || 0 } : null,
+        abandonadasData ? { nombre: "abandonadas", tipo: "abandonadas", filas: abandonadasData.intervals?.length || 0 } : null,
+        despachoInicio.length ? { nombre: "despacho-inicio", tipo: "despacho-inicio", filas: despachoInicio.length } : null,
         despachoDerivacion.length ? { nombre: "despacho-derivacion", tipo: "despacho-derivacion", filas: despachoDerivacion.length } : null,
-        despachoCreacion.length ? { nombre: "despacho-creacion",  tipo: "despacho-creacion",  filas: despachoCreacion.length } : null,
+        despachoCreacion.length ? { nombre: "despacho-creacion", tipo: "despacho-creacion", filas: despachoCreacion.length } : null,
       ].filter(Boolean),
       timestamp: serverTimestamp(),
     });
@@ -505,9 +505,9 @@ function saveLocalReport(files, meta) {
     const abandonadasData = files?.abandonadas;
     let fullMeta = { ...meta };
     if (agentesData?.meta) fullMeta = { ...fullMeta, ...agentesData.meta };
-    const totalOfrecidas   = agentesData?.meta?.totalOfrecidas   || (agentesData?.agents?.reduce((s, a) => s + (a.ofrecidas || 0), 0) || 0);
+    const totalOfrecidas = agentesData?.meta?.totalOfrecidas || (agentesData?.agents?.reduce((s, a) => s + (a.ofrecidas || 0), 0) || 0);
     const totalContestadas = agentesData?.meta?.totalContestadas || (agentesData?.agents?.reduce((s, a) => s + (a.contestadas || 0), 0) || 0);
-    const totalAbandonadas = agentesData?.meta?.totalAbanCabina  || (abandonadasData?.totals?.abandonadas || 0);
+    const totalAbandonadas = agentesData?.meta?.totalAbanCabina || (abandonadasData?.totals?.abandonadas || 0);
     const report = {
       id: generateReportId(), token: generateToken(),
       fechaGuardado: new Date().toISOString(),
@@ -515,13 +515,13 @@ function saveLocalReport(files, meta) {
       turno: { fecha: fullMeta.fechaDesde || "", horaDesde: fullMeta.horaDesde || "", horaHasta: fullMeta.horaHasta || "" },
       resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
       datos: {
-        agentes:            agentesData?.agents        || [],
-        abandonadas:        abandonadasData?.intervals  || [],
-        despachoInicio:     files?.despachoInicio      || [],
-        despachoDerivacion: files?.despachoDerivacion  || [],
-        despachoCreacion:   files?.despachoCreacion    || [],
-        agentesResumen:     agentesData?.meta          || {},
-        abandonadasResumen: abandonadasData?.totals     || {},
+        agentes: agentesData?.agents || [],
+        abandonadas: abandonadasData?.intervals || [],
+        despachoInicio: files?.despachoInicio || [],
+        despachoDerivacion: files?.despachoDerivacion || [],
+        despachoCreacion: files?.despachoCreacion || [],
+        agentesResumen: agentesData?.meta || {},
+        abandonadasResumen: abandonadasData?.totals || {},
       },
     };
     history.push(report);
@@ -673,14 +673,14 @@ function LoginPanel({ onLogin, onSkip }) {
 function UploadZone({ onFiles, loaded }) {
   const [drag, setDrag] = useState(false);
   const types = {
-    agentes:               { label: "Llamadas por Agente",          color: C.mid,    bg: C.light },
-    abandonadas:           { label: "Abandonadas por Hora",         color: C.red,    bg: C.redBg },
-    "despacho-inicio":     { label: "Tiempo Inicio Despacho",       color: C.green,  bg: C.greenBg },
-    "despacho-derivacion": { label: "Tiempo Derivación Inicio",     color: C.orange, bg: C.orBg },
-    "despacho-creacion":   { label: "Tiempo Creación/Derivación",   color: C.blue,   bg: C.light },
+    agentes: { label: "Llamadas por Agente", color: C.mid, bg: C.light },
+    abandonadas: { label: "Abandonadas por Hora", color: C.red, bg: C.redBg },
+    "despacho-inicio": { label: "Tiempo Inicio Despacho", color: C.green, bg: C.greenBg },
+    "despacho-derivacion": { label: "Tiempo Derivación Inicio", color: C.orange, bg: C.orBg },
+    "despacho-creacion": { label: "Tiempo Creación/Derivación", color: C.blue, bg: C.light },
   };
   const totalTypes = Object.keys(types).length;
-  const doneCount  = Object.keys(types).filter(k => loaded.includes(k)).length;
+  const doneCount = Object.keys(types).filter(k => loaded.includes(k)).length;
   return React.createElement("div", {
     onDragOver: e => { e.preventDefault(); setDrag(true); },
     onDragLeave: () => setDrag(false),
@@ -719,44 +719,44 @@ function ViewResumen({ data }) {
     return {
       labels: ivs.map(i => i.hora),
       datasets: [
-        { label: "Atendidas",   data: ivs.map(i => i.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6, order: 1 },
-        { label: "Abandonadas", data: ivs.map(i => i.abandonadas),  backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6, order: 1 },
+        { label: "Atendidas", data: ivs.map(i => i.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6, order: 1 },
+        { label: "Abandonadas", data: ivs.map(i => i.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6, order: 1 },
       ]
     };
   }, [ab]);
 
   const abandonDonut = useMemo(() => {
     if (!tot.abandonadas) return null;
-    return { labels: ["En Cola","En Cabina"], datasets: [{ data: [tot.cola || 0, tot.cabina || 0], backgroundColor: ["#ea580c","#eab308"], borderWidth: 0, hoverOffset: 4 }] };
+    return { labels: ["En Cola", "En Cabina"], datasets: [{ data: [tot.cola || 0, tot.cabina || 0], backgroundColor: ["#ea580c", "#eab308"], borderWidth: 0, hoverOffset: 4 }] };
   }, [tot]);
 
   const agentesData = useMemo(() => {
     if (!ag?.agents?.length) return null;
-    const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a,b) => b.contestadas - a.contestadas);
+    const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
     return { labels: main.map(a => a.nombre.split(",")[0]), datasets: [{ label: "Contestadas", data: main.map(a => a.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 }, { label: "Abandonadas", data: main.map(a => a.abandonadas), backgroundColor: "rgba(220,38,38,0.7)", borderRadius: 6 }] };
   }, [ag]);
 
   const despData = useMemo(() => {
     if (!dp?.length) return null;
-    const sorted = [...dp].sort((a,b) => (a.tiempoSec||0) - (b.tiempoSec||0));
+    const sorted = [...dp].sort((a, b) => (a.tiempoSec || 0) - (b.tiempoSec || 0));
     return {
-      labels: sorted.map(d => (d.nombre || "").replace("DISTRITO ","D.")),
-      datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => (d.tiempoSec||0) > 200 ? C.red : (d.tiempoSec||0) < 40 ? C.green : C.mid) }]
+      labels: sorted.map(d => (d.nombre || "").replace("DISTRITO ", "D.")),
+      datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => (d.tiempoSec || 0) > 200 ? C.red : (d.tiempoSec || 0) < 40 ? C.green : C.mid) }]
     };
   }, [dp]);
 
   const efectivDonut = useMemo(() => {
     // Usar despachoInicio para efectividad (tiene total/efectiva)
-    const allDp = [...(dpI||[]), ...(dpD||[]), ...(dpC||[])];
+    const allDp = [...(dpI || []), ...(dpD || []), ...(dpC || [])];
     if (!allDp.length) return null;
-    const totalCartas = allDp.reduce((s,d) => s + (d.total || 0), 0);
-    const totalEfect  = allDp.reduce((s,d) => s + (d.efectiva || 0), 0);
+    const totalCartas = allDp.reduce((s, d) => s + (d.total || 0), 0);
+    const totalEfect = allDp.reduce((s, d) => s + (d.efectiva || 0), 0);
     if (!totalCartas) return null;
-    return { labels: ["Efectivas","No Efectivas"], datasets: [{ data: [totalEfect, totalCartas - totalEfect], backgroundColor: [C.green, C.red], borderWidth: 0, hoverOffset: 4 }] };
+    return { labels: ["Efectivas", "No Efectivas"], datasets: [{ data: [totalEfect, totalCartas - totalEfect], backgroundColor: [C.green, C.red], borderWidth: 0, hoverOffset: 4 }] };
   }, [dpI, dpD, dpC]);
 
   const gaugeData = useMemo(() => {
-    const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s,v) => s+v, 0) / arr.length) : 0;
+    const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
     const tI = avg((dpI || []).map(d => d.tiempoSec || 0));
     const tD = avg((dpD || []).map(d => d.tiempoSec || 0));
     const tC = avg((dpC || []).map(d => d.tiempoSec || 0));
@@ -765,7 +765,7 @@ function ViewResumen({ data }) {
   }, [dpI, dpD, dpC]);
 
   const donutOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, padding: 10 } } }, cutout: "65%" };
-  const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde||""} → ${meta.fechaHasta} ${meta.horaHasta||""}` : "Período cargado";
+  const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde || ""} → ${meta.fechaHasta} ${meta.horaHasta || ""}` : "Período cargado";
 
   return React.createElement("div", null,
     React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff" } },
@@ -774,9 +774,9 @@ function ViewResumen({ data }) {
       React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, turnoLabel)
     ),
     React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 } },
-      tot.ofrecidas  && React.createElement(StatKpi, { label: "Llamadas Recibidas",  value: tot.ofrecidas.toLocaleString("es-AR"),   sub: `~${Math.round(tot.ofrecidas/12)}/hora`, accent: C.mid }),
-      tot.contestadas && React.createElement(StatKpi, { label: "Atendidas",           value: tot.contestadas.toLocaleString("es-AR"), sub: `${pctAtend.toFixed(1)}% del total`,     accent: C.green }),
-      tot.abandonadas && React.createElement(StatKpi, { label: "Abandonadas",         value: tot.abandonadas.toLocaleString("es-AR"), sub: `${pctAband.toFixed(1)}% del total`,     accent: C.red }),
+      tot.ofrecidas && React.createElement(StatKpi, { label: "Llamadas Recibidas", value: tot.ofrecidas.toLocaleString("es-AR"), sub: `~${Math.round(tot.ofrecidas / 12)}/hora`, accent: C.mid }),
+      tot.contestadas && React.createElement(StatKpi, { label: "Atendidas", value: tot.contestadas.toLocaleString("es-AR"), sub: `${pctAtend.toFixed(1)}% del total`, accent: C.green }),
+      tot.abandonadas && React.createElement(StatKpi, { label: "Abandonadas", value: tot.abandonadas.toLocaleString("es-AR"), sub: `${pctAband.toFixed(1)}% del total`, accent: C.red }),
       ag?.agents?.filter(a => a.ofrecidas >= 30).length > 0 && React.createElement(StatKpi, { label: "Operadores Activos", value: ag.agents.filter(a => a.ofrecidas >= 30).length, sub: "cabinas cubiertas", accent: C.yellow }),
       dpI?.length > 0 && React.createElement(StatKpi, { label: "Distritos Evaluados", value: dpI.length, sub: "en el período", accent: "#7c3aed" }),
     ),
@@ -790,7 +790,7 @@ function ViewResumen({ data }) {
         React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total: ${tot.abandonadas?.toLocaleString("es-AR")} llamadas`),
         React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-abandono", data: abandonDonut, options: donutOpts })),
         React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
-          React.createElement(Badge, { label: `Cola: ${tot.cola}`,   color: C.orange, bg: C.orBg }),
+          React.createElement(Badge, { label: `Cola: ${tot.cola}`, color: C.orange, bg: C.orBg }),
           React.createElement(Badge, { label: `Cabina: ${tot.cabina}`, color: C.yellow, bg: C.ylBg })
         )
       )
@@ -802,13 +802,15 @@ function ViewResumen({ data }) {
       ),
       efectivDonut && React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "✅ Efectividad Despacho"),
-        (() => { const allDp = [...(dpI||[]),...(dpD||[]),...(dpC||[])]; const t2 = allDp.reduce((s,d)=>s+(d.total||0),0); const ef = allDp.reduce((s,d)=>s+(d.efectiva||0),0); const pct = t2>0?((ef/t2)*100).toFixed(1):"0"; return React.createElement(React.Fragment, null,
-          React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total cartas: ${t2}`),
-          React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-efectiv", data: efectivDonut, options: donutOpts })),
-          React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
-            React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg })
-          )
-        ); })()
+        (() => {
+          const allDp = [...(dpI || []), ...(dpD || []), ...(dpC || [])]; const t2 = allDp.reduce((s, d) => s + (d.total || 0), 0); const ef = allDp.reduce((s, d) => s + (d.efectiva || 0), 0); const pct = t2 > 0 ? ((ef / t2) * 100).toFixed(1) : "0"; return React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total cartas: ${t2}`),
+            React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-efectiv", data: efectivDonut, options: donutOpts })),
+            React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
+              React.createElement(Badge, { label: `${pct}% efectivas`, color: C.green, bg: C.greenBg })
+            )
+          );
+        })()
       )
     ),
     gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
@@ -850,18 +852,18 @@ function AutoAlertas({ data }) {
 
     // Calcular umbral dinámico de abandono por hora basado en el volumen total del turno
     const totalHoras = ivs.length || 1;
-    const promAbandPorHora = ivs.length ? ivs.reduce((s,i) => s + i.abandonadas, 0) / ivs.length : 0;
+    const promAbandPorHora = ivs.length ? ivs.reduce((s, i) => s + i.abandonadas, 0) / ivs.length : 0;
     const umbralAbandHora = Math.max(30, Math.round(promAbandPorHora * 2));
 
     const pctAb = tot.ofrecidas ? (tot.abandonadas / tot.ofrecidas) * 100 : 0;
-    if (pctAb > 25) list.push({ type: "red",    msg: `Tasa de abandono elevada: ${pctAb.toFixed(1)}% (supera el umbral del 25%)` });
+    if (pctAb > 25) list.push({ type: "red", msg: `Tasa de abandono elevada: ${pctAb.toFixed(1)}% (supera el umbral del 25%)` });
     if (pctAb >= 15 && pctAb <= 25) list.push({ type: "yellow", msg: `Tasa de abandono moderada: ${pctAb.toFixed(1)}% — monitorear` });
 
     // Horario del turno
-    const scheduleStr = meta.horaDesde && meta.horaHasta ? ` (turno ${meta.horaDesde.slice(0,5)} → ${meta.horaHasta.slice(0,5)})` : "";
+    const scheduleStr = meta.horaDesde && meta.horaHasta ? ` (turno ${meta.horaDesde.slice(0, 5)} → ${meta.horaHasta.slice(0, 5)})` : "";
 
     if (ivs.length) {
-      const worst = [...ivs].sort((a,b) => b.abandonadas - a.abandonadas)[0];
+      const worst = [...ivs].sort((a, b) => b.abandonadas - a.abandonadas)[0];
       if (worst && worst.abandonadas > umbralAbandHora) {
         const pctIv = worst.ofrecidas > 0 ? Math.round((worst.abandonadas / worst.ofrecidas) * 100) : 0;
         list.push({ type: "orange", msg: `Hora pico de abandono${scheduleStr}: ${worst.hora} hs (${worst.abandonadas} abandonadas — ${pctIv}% del intervalo)` });
@@ -869,18 +871,18 @@ function AutoAlertas({ data }) {
     }
     if (data.agentes?.agents) {
       const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
-      main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0])*60+parseInt(parts[1]||0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: tiempo ausente elevado (${a.tiempoAusente} hs)` }); });
+      main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: tiempo ausente elevado (${a.tiempoAusente} hs)` }); });
       main.forEach(a => { if (a.abandonadas > 50) list.push({ type: "orange", msg: `${a.nombre}: ${a.abandonadas} abandonadas en cabina — revisar` }); });
     }
-    const allDespacho = [...(data.despachoInicio||[]), ...(data.despachoDerivacion||[]), ...(data.despachoCreacion||[])];
+    const allDespacho = [...(data.despachoInicio || []), ...(data.despachoDerivacion || []), ...(data.despachoCreacion || [])];
     allDespacho.filter(d => d.tiempoSec > 300).forEach(d => list.push({ type: "red", msg: `${d.nombre}: tiempo de despacho crítico (${fmtSeconds(d.tiempoSec)})` }));
     return list;
   }, [data]);
 
   if (!alerts.length) return React.createElement("div", { style: { padding: "14px 18px", background: C.greenBg, border: "1px solid #86efac", borderRadius: 10, fontSize: 13, color: "#14532d", fontWeight: 600 } }, "✅ Sin alertas críticas en este turno.");
 
-  const colors = { red: [C.redBg,"#991b1b"], yellow: [C.ylBg,"#78350f"], orange: [C.orBg,"#7c2d12"] };
-  const icons  = { red: "🔴", yellow: "🟡", orange: "🟠" };
+  const colors = { red: [C.redBg, "#991b1b"], yellow: [C.ylBg, "#78350f"], orange: [C.orBg, "#7c2d12"] };
+  const icons = { red: "🔴", yellow: "🟡", orange: "🟠" };
   return React.createElement("div", null,
     React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⚠️ Alertas Automáticas"),
     alerts.map((a, i) => React.createElement("div", { key: i, style: { background: colors[a.type][0], border: `1px solid ${colors[a.type][1]}33`, borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontSize: 13, color: colors[a.type][1], display: "flex", gap: 10, alignItems: "flex-start" } },
@@ -908,7 +910,7 @@ function ViewHoras({ data }) {
       ),
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 14 } }, "% Abandono por Hora"),
-        React.createElement("div", { style: { height: 260 } }, React.createElement(ChartLine, { id: "hora-pct", data: { labels: ivs.map(i => i.hora), datasets: [{ label: "% Abandono", data: ivs.map(i => i.ofrecidas ? +((i.abandonadas/i.ofrecidas)*100).toFixed(1) : 0), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.08)", fill: true, tension: 0.4, pointRadius: 5 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#f1f5f9" }, ticks: { callback: v => v + "%" } } } } }))
+        React.createElement("div", { style: { height: 260 } }, React.createElement(ChartLine, { id: "hora-pct", data: { labels: ivs.map(i => i.hora), datasets: [{ label: "% Abandono", data: ivs.map(i => i.ofrecidas ? +((i.abandonadas / i.ofrecidas) * 100).toFixed(1) : 0), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.08)", fill: true, tension: 0.4, pointRadius: 5 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#f1f5f9" }, ticks: { callback: v => v + "%" } } } } }))
       )
     ),
     React.createElement(Card, null,
@@ -916,16 +918,16 @@ function ViewHoras({ data }) {
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
           React.createElement("thead", null,
             React.createElement("tr", { style: { background: C.blue } },
-              ["Intervalo","Ofrecidas","Atendidas","% Atend.","Cola","Cabina","Total Aband.","% Aband."].map(h =>
+              ["Intervalo", "Ofrecidas", "Atendidas", "% Atend.", "Cola", "Cabina", "Total Aband.", "% Aband."].map(h =>
                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Intervalo" ? "left" : "center", fontSize: 11 } }, h)
               )
             )
           ),
           React.createElement("tbody", null,
             ivs.map((iv, i) => {
-              const pctA = iv.ofrecidas ? +((iv.contestadas/iv.ofrecidas)*100).toFixed(0) : 0;
-              const pctAb = iv.ofrecidas ? +((iv.abandonadas/iv.ofrecidas)*100).toFixed(0) : 0;
-              return React.createElement("tr", { key: i, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+              const pctA = iv.ofrecidas ? +((iv.contestadas / iv.ofrecidas) * 100).toFixed(0) : 0;
+              const pctAb = iv.ofrecidas ? +((iv.abandonadas / iv.ofrecidas) * 100).toFixed(0) : 0;
+              return React.createElement("tr", { key: i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                 React.createElement("td", { style: { padding: "8px 12px", fontWeight: 600 } }, iv.label),
                 React.createElement("td", { style: { padding: "8px 12px", textAlign: "center" } }, iv.ofrecidas),
                 React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700, color: C.mid } }, iv.contestadas),
@@ -942,11 +944,11 @@ function ViewHoras({ data }) {
               React.createElement("td", { style: { padding: "8px 12px", fontWeight: 700 } }, "TOTAL"),
               React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.ofrecidas),
               React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.contestadas),
-              React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.ofrecidas ? `${((tot.contestadas/tot.ofrecidas)*100).toFixed(1)}%` : "—"),
+              React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.ofrecidas ? `${((tot.contestadas / tot.ofrecidas) * 100).toFixed(1)}%` : "—"),
               React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.cola),
               React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.cabina),
               React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.abandonadas),
-              React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.ofrecidas ? `${((tot.abandonadas/tot.ofrecidas)*100).toFixed(1)}%` : "—"),
+              React.createElement("td", { style: { padding: "8px 12px", textAlign: "center", fontWeight: 700 } }, tot.ofrecidas ? `${((tot.abandonadas / tot.ofrecidas) * 100).toFixed(1)}%` : "—"),
             )
           )
         )
@@ -961,7 +963,7 @@ function ViewHoras({ data }) {
 function ViewOperadores({ data }) {
   const ag = data.agentes;
   if (!ag) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá el archivo de Llamadas por Agente.");
-  const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a,b) => b.contestadas - a.contestadas);
+  const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
 
   return React.createElement("div", null,
     React.createElement(SectionTitle, { num: "3", title: "Gestión por Operador", sub: `${main.length} operadores activos` }),
@@ -972,7 +974,7 @@ function ViewOperadores({ data }) {
       ),
       React.createElement(Card, null,
         React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 14 } }, "Disponibilidad %"),
-        React.createElement("div", { style: { height: 240 } }, React.createElement(ChartBar, { id: "ag-disp", data: { labels: main.map(a => a.nombre.split(",")[0]), datasets: [{ label: "Disponibilidad %", data: main.map(a => a.disponibilidad), backgroundColor: main.map(a => a.disponibilidad > 80 ? "rgba(22,163,74,0.8)" : a.disponibilidad > 60 ? "rgba(217,119,6,0.8)" : "rgba(220,38,38,0.8)"), borderRadius: 5 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { max: 100, ticks: { callback: v => v+"%" } } } } }))
+        React.createElement("div", { style: { height: 240 } }, React.createElement(ChartBar, { id: "ag-disp", data: { labels: main.map(a => a.nombre.split(",")[0]), datasets: [{ label: "Disponibilidad %", data: main.map(a => a.disponibilidad), backgroundColor: main.map(a => a.disponibilidad > 80 ? "rgba(22,163,74,0.8)" : a.disponibilidad > 60 ? "rgba(217,119,6,0.8)" : "rgba(220,38,38,0.8)"), borderRadius: 5 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { max: 100, ticks: { callback: v => v + "%" } } } } }))
       )
     ),
     React.createElement(Card, null,
@@ -980,17 +982,17 @@ function ViewOperadores({ data }) {
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
           React.createElement("thead", null,
             React.createElement("tr", { style: { background: C.blue } },
-              ["Operador","Ofrecidas","Contestadas","Aband. Cabina","T. Conectado","T. Ausente","Disponibilidad"].map(h =>
+              ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Ausente", "Disponibilidad"].map(h =>
                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Operador" ? "left" : "center", fontSize: 11 } }, h)
               )
             )
           ),
           React.createElement("tbody", null,
-            main.map((a, i) => React.createElement("tr", { key: a.nombre, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+            main.map((a, i) => React.createElement("tr", { key: a.nombre, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
               React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700 } }, a.nombre),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, a.ofrecidas),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.mid } },
-                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, justifyContent: "center" } }, a.contestadas, React.createElement(MiniBar, { pct: main[0]?.contestadas ? (a.contestadas/main[0].contestadas)*100 : 0, color: C.mid }))
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, justifyContent: "center" } }, a.contestadas, React.createElement(MiniBar, { pct: main[0]?.contestadas ? (a.contestadas / main[0].contestadas) * 100 : 0, color: C.mid }))
               ),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, React.createElement(Badge, { label: a.abandonadas, color: a.abandonadas > 50 ? C.red : C.green, bg: a.abandonadas > 50 ? C.redBg : C.greenBg })),
               React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoConectado),
@@ -1016,7 +1018,7 @@ function ViewOperadores({ data }) {
 // ════════════════════════════════════════════════════════════════════════════
 function DespachoSection({ title, subtitle, dataset, sectionNum, compact }) {
   if (!dataset?.length) return React.createElement("div", { style: { padding: "20px", textAlign: "center", color: C.gray, fontSize: 12 } }, `Sin datos para: ${title}`);
-  const sorted = [...dataset].sort((a,b) => a.tiempoSec - b.tiempoSec);
+  const sorted = [...dataset].sort((a, b) => a.tiempoSec - b.tiempoSec);
   const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
   const top3 = sorted.slice(0, 3);
   const bot3 = sorted.slice(-3).reverse();
@@ -1026,55 +1028,57 @@ function DespachoSection({ title, subtitle, dataset, sectionNum, compact }) {
     React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 } },
       React.createElement(Card, { style: { padding: compact ? "12px 14px" : "20px" } },
         React.createElement("div", { style: { fontWeight: 700, fontSize: 11, color: "#065f46", marginBottom: 10 } }, "🏆 Top 3 — Menor tiempo"),
-        top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: "top" }))
+        top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: "top" }))
       ),
       React.createElement(Card, { style: { padding: compact ? "12px 14px" : "20px" } },
         React.createElement("div", { style: { fontWeight: 700, fontSize: 11, color: C.red, marginBottom: 10 } }, "⚠️ Bottom 3 — Mayor tiempo"),
-        bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length-i, variant: "bot" }))
+        bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length - i, variant: "bot" }))
       )
     ),
     !compact && React.createElement(Card, null,
       React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.navy, marginBottom: 10 } }, "Ranking Completo"),
-      sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i+1, variant: i < 3 ? "top" : i >= sorted.length-3 ? "bot" : "mid" }))
+      sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: i < 3 ? "top" : i >= sorted.length - 3 ? "bot" : "mid" }))
     )
   );
 }
 
 function ViewDespacho({ data }) {
-  const dpI = data.despachoInicio     || [];
+  const dpI = data.despachoInicio || [];
   const dpD = data.despachoDerivacion || [];
-  const dpC = data.despachoCreacion   || [];
+  const dpC = data.despachoCreacion || [];
   if (!dpI.length && !dpD.length && !dpC.length)
     return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá los archivos de tiempos de despacho.");
 
   return React.createElement("div", null,
     React.createElement(SectionTitle, { num: "4", title: "Tiempos de Despacho por Distrito", sub: "Un ranking por cada métrica de tiempo" }),
+    dpC.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
     React.createElement(DespachoSection, {
-      title:    "⏱ Inicio Despacho → Asignación",
-      subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
-      dataset:  dpI,
+      title: "📋 Creación Evento → Derivación",
+      subtitle: `${dpC.length} distritos — tiempo desde la creación del evento hasta el despacho`,
+      dataset: dpC,
     }),
     dpD.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
     React.createElement(DespachoSection, {
-      title:    "🔄 Derivación → Inicio Despacho",
+      title: "🔄 Derivación → Despacho",
       subtitle: `${dpD.length} distritos — tiempo desde derivación hasta inicio del despacho`,
-      dataset:  dpD,
+      dataset: dpD,
     }),
-    dpC.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
+    dpI.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
     React.createElement(DespachoSection, {
-      title:    "📋 Creación Evento → Despacho",
-      subtitle: `${dpC.length} distritos — tiempo desde la creación del evento hasta el despacho`,
-      dataset:  dpC,
+      title: "⏱ Inicio Despacho → Asignación",
+      subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
+      dataset: dpI,
     })
+
   );
 }
 
 function DistritoRow({ d, maxSec, rank, variant }) {
-  const pct   = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
+  const pct = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
   const efPct = d.total > 0 ? (d.efectiva / d.total) * 100 : 0;
-  const col   = variant === "bot" ? C.red : variant === "top" ? C.green : C.mid;
-  const bg    = variant === "bot" ? C.redBg : variant === "top" ? C.greenBg : (rank % 2 === 0 ? "#f8fafc" : "#fff");
-  const bdr   = variant === "bot" ? "#fecaca" : variant === "top" ? "#86efac" : C.border;
+  const col = variant === "bot" ? C.red : variant === "top" ? C.green : C.mid;
+  const bg = variant === "bot" ? C.redBg : variant === "top" ? C.greenBg : (rank % 2 === 0 ? "#f8fafc" : "#fff");
+  const bdr = variant === "bot" ? "#fecaca" : variant === "top" ? "#86efac" : C.border;
 
   return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: 5 } },
     React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
@@ -1094,11 +1098,11 @@ function DistritoRow({ d, maxSec, rank, variant }) {
 //  VIEW: HISTORIAL — Firebase + local fallback
 // ════════════════════════════════════════════════════════════════════════════
 function ViewHistorial({ user }) {
-  const [history, setHistory]           = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [filterTurno, setFilterTurno]   = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterTurno, setFilterTurno] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
-  const [deleting, setDeleting]         = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const isFirebase = !!user;
 
@@ -1146,78 +1150,90 @@ function ViewHistorial({ user }) {
     React.createElement("div", { style: { fontSize: 13 } }, isFirebase ? "Los reportes que generes se guardarán automáticamente en Firestore." : "Los reportes se guardan localmente en este navegador.")
   );
 
-  if (selectedReport) return React.createElement("div", null,
-    React.createElement(Card, { style: { marginBottom: 20 } },
-      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
-        React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Listado"),
-        React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
-          React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
+  if (selectedReport) {
+    const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + (v.tiempoSec || 0), 0) / arr.length) : 0;
+    const dpI = selectedReport.datos?.despachoInicio || [];
+    const dpD = selectedReport.datos?.despachoDerivacion || [];
+    const dpC = selectedReport.datos?.despachoCreacion || [];
+
+    return React.createElement("div", null,
+      React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
+          React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Listado"),
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
+            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
+          )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Turno"),
+            React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turnoLabel)
+          ),
+          React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
+            React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
+          )
         )
       ),
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
-        React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Turno"),
-          React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turnoLabel)
+      React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 } },
+          React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen.totalOfrecidas, accent: C.mid }),
+          React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen.totalContestadas, accent: C.green }),
+          React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen.totalAbandonadas, accent: C.red })
         ),
-        React.createElement("div", null,
-          React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
-          React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
+          React.createElement(StatKpi, { label: "Promedio Inicio Desp.", value: fmtSeconds(avg(dpI)), accent: "#7c3aed" }),
+          React.createElement(StatKpi, { label: "Promedio Derivaciones", value: fmtSeconds(avg(dpD)), accent: "#7c3aed" }),
+          React.createElement(StatKpi, { label: "Promedio Creaciones", value: fmtSeconds(avg(dpC)), accent: "#7c3aed" })
         )
-      )
-    ),
-    React.createElement(Card, { style: { marginBottom: 20 } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
-        React.createElement(StatKpi, { label: "Llamadas Ofrecidas",   value: selectedReport.resumen.totalOfrecidas,   accent: C.mid }),
-        React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen.totalContestadas, accent: C.green }),
-        React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen.totalAbandonadas, accent: C.red })
-      )
-    ),
-    selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
-      React.createElement("div", { style: { overflowX: "auto" } },
-        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
-          React.createElement("thead", null,
-            React.createElement("tr", { style: { background: C.blue } },
-              ["Operador","Ofrecidas","Contestadas","Abandonadas","Disponibilidad"].map(h =>
-                React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
+      ),
+      selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
+        React.createElement("div", { style: { overflowX: "auto" } },
+          React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
+            React.createElement("thead", null,
+              React.createElement("tr", { style: { background: C.blue } },
+                ["Operador", "Ofrecidas", "Contestadas", "Abandonadas", "Disponibilidad"].map(h =>
+                  React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
+                )
               )
-            )
-          ),
-          React.createElement("tbody", null,
-            selectedReport.datos.agentes.map((a, i) =>
-              React.createElement("tr", { key: a.nombre, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
-                React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${a.disponibilidad.toFixed(1)}%`)
+            ),
+            React.createElement("tbody", null,
+              selectedReport.datos.agentes.map((a, i) =>
+                React.createElement("tr", { key: a.nombre, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                  React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
+                  React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${a.disponibilidad.toFixed(1)}%`)
+                )
               )
             )
           )
         )
+      ),
+      (selectedReport.datos?.despachoInicio?.length > 0 || selectedReport.datos?.despachoDerivacion?.length > 0 || selectedReport.datos?.despachoCreacion?.length > 0) && React.createElement("div", null,
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Tiempos de Despacho (Mejores y Peores)"),
+        selectedReport.datos.despachoInicio?.length > 0 && React.createElement(DespachoSection, {
+          title: "Inicio Despacho → Asignación",
+          dataset: selectedReport.datos.despachoInicio,
+          compact: true
+        }),
+        selectedReport.datos.despachoDerivacion?.length > 0 && React.createElement(DespachoSection, {
+          title: "Derivación → Inicio Despacho",
+          dataset: selectedReport.datos.despachoDerivacion,
+          compact: true
+        }),
+        selectedReport.datos.despachoCreacion?.length > 0 && React.createElement(DespachoSection, {
+          title: "Creación Evento → Despacho",
+          dataset: selectedReport.datos.despachoCreacion,
+          compact: true
+        })
       )
-    ),
-    (selectedReport.datos?.despachoInicio?.length > 0 || selectedReport.datos?.despachoDerivacion?.length > 0 || selectedReport.datos?.despachoCreacion?.length > 0) && React.createElement("div", null,
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Tiempos de Despacho (Mejores y Peores)"),
-      selectedReport.datos.despachoInicio?.length > 0 && React.createElement(DespachoSection, {
-        title: "Inicio Despacho → Asignación",
-        dataset: selectedReport.datos.despachoInicio,
-        compact: true
-      }),
-      selectedReport.datos.despachoDerivacion?.length > 0 && React.createElement(DespachoSection, {
-        title: "Derivación → Inicio Despacho",
-        dataset: selectedReport.datos.despachoDerivacion,
-        compact: true
-      }),
-      selectedReport.datos.despachoCreacion?.length > 0 && React.createElement(DespachoSection, {
-        title: "Creación Evento → Despacho",
-        dataset: selectedReport.datos.despachoCreacion,
-        compact: true
-      })
-    )
-  );
+    );
+  }
 
   return React.createElement("div", null,
     React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
@@ -1236,22 +1252,24 @@ function ViewHistorial({ user }) {
       )
     ),
 
-    filterTurno && (() => { const stats = getTurnoStats(filterTurno, history); return stats ? React.createElement(Card, { style: { marginBottom: 20 } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, `Estadísticas: ${filterTurno}`),
-      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 } },
-        React.createElement(StatKpi, { label: "Reportes",          value: stats.cantidad,          accent: C.blue }),
-        React.createElement(StatKpi, { label: "Total Ofrecidas",   value: stats.totalOfrecidas,    accent: C.mid }),
-        React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalContestadas,  accent: C.green }),
-        React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAbandonadas,  accent: C.red })
-      )
-    ) : null; })(),
+    filterTurno && (() => {
+      const stats = getTurnoStats(filterTurno, history); return stats ? React.createElement(Card, { style: { marginBottom: 20 } },
+        React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, `Estadísticas: ${filterTurno}`),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 } },
+          React.createElement(StatKpi, { label: "Reportes", value: stats.cantidad, accent: C.blue }),
+          React.createElement(StatKpi, { label: "Total Ofrecidas", value: stats.totalOfrecidas, accent: C.mid }),
+          React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalContestadas, accent: C.green }),
+          React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAbandonadas, accent: C.red })
+        )
+      ) : null;
+    })(),
 
     React.createElement(Card, null,
       React.createElement("div", { style: { overflowX: "auto" } },
         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
           React.createElement("thead", null,
             React.createElement("tr", { style: { background: C.blue } },
-              ["ID Reporte","Usuario","Fecha Guardado","Turno","Ofrecidas","Contestadas","Abandonadas","Acciones"].map(h =>
+              ["ID Reporte", "Usuario", "Fecha Guardado", "Turno", "Ofrecidas", "Contestadas", "Abandonadas", "Acciones"].map(h =>
                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
               )
             )
@@ -1259,7 +1277,7 @@ function ViewHistorial({ user }) {
           React.createElement("tbody", null,
             filteredReports.map((r, i) => {
               const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleString("es-ES") : "-";
-              return React.createElement("tr", { key: r.id || i, style: { background: i%2===0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+              return React.createElement("tr", { key: r.id || i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                 React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700, fontFamily: "monospace", fontSize: 9, color: C.blue } }, r.id),
                 React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray, fontWeight: 600 } }, r.usuario || r.userDisplayName || r.userEmail || r.uid || "-"),
                 React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray } }, reportDate),
@@ -1286,13 +1304,13 @@ function ViewHistorial({ user }) {
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
-  const [user, setUser]       = useState(undefined);  // undefined = cargando, null = no auth, object = logueado
+  const [user, setUser] = useState(undefined);  // undefined = cargando, null = no auth, object = logueado
   const [skipAuth, setSkipAuth] = useState(false);
-  const [files, setFiles]     = useState({ agentes: null, abandonadas: null, despachoInicio: null, despachoDerivacion: null, despachoCreacion: null });
-  const [loaded, setLoaded]   = useState([]);
-  const [view, setView]       = useState("upload");
-  const [err, setErr]         = useState(null);
-  const lastSavedTurno        = useRef(null);
+  const [files, setFiles] = useState({ agentes: null, abandonadas: null, despachoInicio: null, despachoDerivacion: null, despachoCreacion: null });
+  const [loaded, setLoaded] = useState([]);
+  const [view, setView] = useState("upload");
+  const [err, setErr] = useState(null);
+  const lastSavedTurno = useRef(null);
 
   // Escuchar cambios de auth
   useEffect(() => {
@@ -1373,7 +1391,7 @@ function App() {
           r.readAsText(f, "latin-1");
         });
       }
-          const type = detectType(text, f.name);
+      const type = detectType(text, f.name);
       if (!type) { setErr(`No se pudo identificar "${f.name}".`); continue; }
       if (type === "agentes") {
         next.agentes = parseAgentes(text);
@@ -1406,20 +1424,20 @@ function App() {
   if (!skipAuth && !user && getAuth()) {
     return React.createElement(LoginPanel, {
       onLogin: u => setUser(u),
-      onSkip:  () => { setSkipAuth(true); setUser(null); }
+      onSkip: () => { setSkipAuth(true); setUser(null); }
     });
   }
 
   const hasData = loaded.length > 0;
   const meta = files.abandonadas?.meta || files.agentes?.meta || {};
-  const turnoLabel = meta.fechaDesde ? `${meta.fechaDesde} ${meta.horaDesde||""} → ${meta.fechaHasta||""} ${meta.horaHasta||""}` : "";
+  const turnoLabel = meta.fechaDesde ? `${meta.fechaDesde} ${meta.horaDesde || ""} → ${meta.fechaHasta || ""} ${meta.horaHasta || ""}` : "";
 
   const navItems = [
-    { id: "resumen",    label: "📊 Resumen",    avail: hasData },
-    { id: "horas",      label: "📞 Por Hora",   avail: !!files.abandonadas },
+    { id: "resumen", label: "📊 Resumen", avail: hasData },
+    { id: "horas", label: "📞 Por Hora", avail: !!files.abandonadas },
     { id: "operadores", label: "👤 Operadores", avail: !!files.agentes },
-    { id: "despacho",   label: "🚓 Despacho",   avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
-    { id: "historial",  label: "📋 Historial",  avail: true },
+    { id: "despacho", label: "🚓 Despacho", avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
+    { id: "historial", label: "📋 Historial", avail: true },
   ];
 
   return React.createElement("div", { style: { minHeight: "100vh", background: C.bg } },
@@ -1471,7 +1489,8 @@ function App() {
       view === "upload" && React.createElement("div", null,
         React.createElement("div", { style: { textAlign: "center", marginBottom: 32, paddingTop: 20 } },
           React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "🚨"),
-          React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, marginBottom: 6 } }, "Sistema de Informes SAE 911"),
+          React.createElement("img", { src: "img/logo_geston.png", alt: "Logo Geston", style: { height: 80, marginBottom: 16 } }),
+          React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "Sistema de Informes de Gestión y Calidad"),
           React.createElement("div", { style: { fontSize: 14, color: C.gray } }, "Cargá los 5 CSV exportados del sistema para generar el informe automáticamente"),
           !user && getAuth() && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.yellow, fontWeight: 700 } }, "⚠️ Inicia sesión con Google para que tu correo quede registrado en Firestore."),
           user && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.green, fontWeight: 600 } }, `✓ Sesión activa: ${user.displayName || user.email} — los informes se sincronizan en la nube`)
@@ -1479,11 +1498,11 @@ function App() {
         React.createElement(UploadZone, { onFiles: handleFiles, loaded }),
         React.createElement("div", { style: { marginTop: 28, display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 14 } },
           [
-            { icon: "👤", title: "Llamadas por Agente",       desc: "Actividad, disponibilidad y abandonadas cabina por operador" },
-            { icon: "📞", title: "Abandonadas por Hora",      desc: "Volumen, abandono y atención en cada intervalo del turno" },
-            { icon: "🚗", title: "Inicio Despacho",           desc: "Tiempo desde inicio hasta asignación por distrito" },
-            { icon: "🔄", title: "Derivación → Inicio",       desc: "Tiempo desde derivación hasta inicio de despacho" },
-            { icon: "⏱",  title: "Creación/Derivación",       desc: "Tiempo desde creación del evento hasta despacho" },
+            { icon: "👤", title: "Llamadas por Agente", desc: "Actividad, disponibilidad y abandonadas cabina por operador" },
+            { icon: "📞", title: "Abandonadas por Hora", desc: "Volumen, abandono y atención en cada intervalo del turno" },
+            { icon: "🚗", title: "Inicio Despacho", desc: "Tiempo desde inicio hasta asignación por distrito" },
+            { icon: "🔄", title: "Derivación → Inicio", desc: "Tiempo desde derivación hasta inicio de despacho" },
+            { icon: "⏱", title: "Creación/Derivación", desc: "Tiempo desde creación del evento hasta despacho" },
           ].map(({ icon, title, desc }) =>
             React.createElement("div", { key: title, style: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", textAlign: "center" } },
               React.createElement("div", { style: { fontSize: 28, marginBottom: 8 } }, icon),
@@ -1494,11 +1513,11 @@ function App() {
         )
       ),
 
-      view === "resumen"    && React.createElement(ViewResumen,    { data: files }),
-      view === "horas"      && React.createElement(ViewHoras,      { data: files }),
+      view === "resumen" && React.createElement(ViewResumen, { data: files }),
+      view === "horas" && React.createElement(ViewHoras, { data: files }),
       view === "operadores" && React.createElement(ViewOperadores, { data: files }),
-      view === "despacho"   && React.createElement(ViewDespacho,   { data: files }),
-      view === "historial"  && React.createElement(ViewHistorial,  { user }),
+      view === "despacho" && React.createElement(ViewDespacho, { data: files }),
+      view === "historial" && React.createElement(ViewHistorial, { user }),
     )
   );
 }
