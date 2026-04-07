@@ -624,9 +624,7 @@ function LoginPanel({ onLogin, onSkip }) {
     React.createElement("div", {
       style: { background: "#fff", borderRadius: 20, padding: "48px 40px", width: 380, textAlign: "center", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }
     },
-      React.createElement("div", { style: { fontSize: 44, marginBottom: 12 } }, "🚨"),
-      React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy, marginBottom: 4 } }, "SAE 911"),
-      React.createElement("div", { style: { fontSize: 13, color: C.gray, marginBottom: 8 } }, "Sistema de Informes — DCGyC"),
+      React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 60, marginBottom: 16 } }),
       React.createElement("div", { style: { marginBottom: 24, fontSize: 14, color: C.navy, fontWeight: 700 } }, "Inicia sesión con Google para guardar tus informes en la nube con tu correo."),
 
       React.createElement("button", {
@@ -1445,7 +1443,7 @@ function App() {
     // TOPBAR
     React.createElement("div", { style: { background: `linear-gradient(90deg, ${C.navy} 0%, ${C.blue} 100%)`, padding: "0 28px", display: "flex", alignItems: "center", gap: 0, height: 56, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } },
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginRight: 32 } },
-        React.createElement("span", { style: { fontSize: 22 } }, "🚨"),
+        React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 36 } }),
         React.createElement("div", null,
           React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: "#fff", lineHeight: 1 } }, "SAE 911"),
           React.createElement("div", { style: { fontSize: 10, color: "#93c5fd", fontWeight: 600, letterSpacing: 0.5 } }, "DCGyC — Informes")
