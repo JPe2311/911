@@ -1352,11 +1352,13 @@ function ViewMensual({ user }) {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
+    if (user === undefined) return; // Esperar a que el estado de auth cargue
+    
     loadMensualFromFirestore().then(res => {
       setHistory(res);
       setLoading(false);
     });
-  }, []);
+  }, [user]);
 
   const handleMonthlyFile = async (e) => {
     const file = e.target.files[0];
