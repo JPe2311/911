@@ -468,16 +468,38 @@ async function deleteReportFromFirestore(firestoreId) {
 async function saveMensualToFirestore(data, meta, user) {
   const db = getDB();
   if (!db || !user?.uid) return null;
-  const { addDoc, collection, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+  const { collection, query, where, getDocs, setDoc, doc, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
   try {
-    const docRef = await addDoc(collection(db, "analisis_mensual"), {
+    // 🔍 Buscar si ya existe un registro para este mes/año del mismo usuario
+    const q = query(
+      collection(db, "analisis_mensual"),
+      where("uid", "==", user.uid),
+      where("meta.monthNum", "==", meta.monthNum),
+      where("meta.year", "==", meta.year)
+    );
+    const snap = await getDocs(q);
+    
+    const payload = {
       ...data,
       meta,
       uid: user.uid,
       usuario: user.displayName || user.email || user.uid,
-      createdAt: serverTimestamp()
-    });
-    return docRef.id;
+      updatedAt: serverTimestamp()
+    };
+
+    if (!snap.empty) {
+      // 📝 Sobrescribir existente
+      const existingDoc = snap.docs[0];
+      await setDoc(doc(db, "analisis_mensual", existingDoc.id), payload, { merge: true });
+      return existingDoc.id;
+    } else {
+      // ✨ Crear nuevo
+      const docRef = await addDoc(collection(db, "analisis_mensual"), {
+        ...payload,
+        createdAt: serverTimestamp()
+      });
+      return docRef.id;
+    }
   } catch (e) {
     console.error("Error saving monthly data:", e);
     return null;
@@ -1407,24 +1429,42 @@ function ViewMensual({ user }) {
         
         const ofrec = parseInt(cols[colIdx.ofrecidas]) || 0;
         const cont = parseInt(cols[colIdx.contestadas]) || 0;
-        const fecha = cols[colIdx.fecha] || "";
-        const hora = (cols[colIdx.hora] || "").trim();
+        const fechaRaw = cols[colIdx.fecha] || "";
+        const horaRaw = (cols[colIdx.hora] || "").trim();
         
         if (ofrec || cont) {
           totalOfrecidas += ofrec;
           totalContestadas += cont;
           totalAbandonadas += (ofrec - cont);
           
-          if (fecha) {
-            // Stats por día (Resumen)
-            if (!dailyData[fecha]) dailyData[fecha] = { fecha, ofrecidas: 0, contestadas: 0 };
-            dailyData[fecha].ofrecidas += ofrec;
-            dailyData[fecha].contestadas += cont;
-            
-            // Stats por hora (Heatmap) - Guardar solo lo esencial d:dia, h:hora, o:ofrec, c:cont
-            const dayNum = parseInt(fecha.split(/[-/]/)[0]) || 0; // Asumimos DD-MM-YYYY o DD/MM/YYYY
-            if (dayNum > 0) {
-              hourlyData.push({ d: dayNum, h: hora, o: ofrec, c: cont });
+          if (fechaRaw) {
+            // Intentar detectar el día de forma robusta
+            // Buscamos un número en la primera o segunda parte del split que esté dentro de 1-31
+            const parts = fechaRaw.split(/[-/]/);
+            let dayNum = 0;
+            if (parts.length >= 2) {
+              const p0 = parseInt(parts[0]);
+              const p1 = parseInt(parts[1]);
+              // Si el archivo dice que es mes X (monthNum), y una parte coincide, la otra debe ser el día
+              if (p1 === monthNum) dayNum = p0;
+              else if (p0 === monthNum) dayNum = p1;
+              else dayNum = p0; // Fallback al primero
+            }
+
+            if (dayNum >= 1 && dayNum <= 31) {
+              // Normalizar hora (ej: "8" -> "08:00", "08:30" -> "08:00")
+              let hNorm = "00:00";
+              const hMatch = horaRaw.match(/(\d{1,2})/);
+              if (hMatch) {
+                hNorm = hMatch[1].padStart(2, "0") + ":00";
+              }
+
+              // Stats por día (Resumen)
+              if (!dailyData[dayNum]) dailyData[dayNum] = { d: dayNum, ofrecidas: 0, contestadas: 0 };
+              dailyData[dayNum].ofrecidas += ofrec;
+              dailyData[dayNum].contestadas += cont;
+              
+              hourlyData.push({ d: dayNum, h: hNorm, o: ofrec, c: cont });
             }
           }
         }
@@ -1432,8 +1472,8 @@ function ViewMensual({ user }) {
 
       const report = {
         resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
-        detalles: hourlyData, // Ahora guardamos los detalles por hora
-        dailyAggr: Object.values(dailyData).sort((a,b) => a.fecha.localeCompare(b.fecha))
+        detalles: hourlyData,
+        dailyAggr: Object.values(dailyData).sort((a,b) => a.d - b.d)
       };
       const meta = { month: monthStr, year, monthNum, label: `${monthStr} ${year}`.toUpperCase() };
       
