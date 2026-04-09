@@ -1857,18 +1857,44 @@ function ViewMensual({ user }) {
 
     const turnoLabel = filterTurno === "dia" ? "Turno Diurno (07:00 – 19:00)" : filterTurno === "noche" ? "Turno Nocturno (19:00 – 07:00)" : "Todos los turnos";
 
-    return React.createElement("div", null,
+    return React.createElement("div", { className: "view-mensual-root" },
+        // ── PRINT STYLES ──────────────────────────────────────────────────────
+        React.createElement("style", null, `
+            @media print {
+                body, .view-mensual-root { background: #fff !important; padding: 0 !important; margin: 0 !important; }
+                .view-mensual-root > div:first-child { background: #0f2444 !important; color: #fff !important; border-radius: 0 !important; margin-bottom: 30px !important; print-color-adjust: exact; }
+                .view-mensual-root > div:nth-child(2), 
+                .view-mensual-root > div:nth-child(3), 
+                .view-mensual-root button,
+                .view-mensual-root select,
+                .view-mensual-root .no-print { display: none !important; }
+                .view-mensual-root .card { box-shadow: none !important; border: 1px solid #e2e8f0 !important; break-inside: avoid; page-break-inside: avoid; margin-bottom: 25px !important; }
+                .view-mensual-root h2, .view-mensual-root h3 { color: #0f2444 !important; }
+                canvas { max-width: 100% !important; height: auto !important; }
+                .page-break { page-break-before: always; break-before: page; padding-top: 30px; }
+            }
+        `),
         // ── HEADER BANNER ──────────────────────────────────────────────────────
-        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff" } },
+        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff", position: "relative" } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, ""),
                     React.createElement("div", { style: { fontSize: 26, fontWeight: 900 } }, "Análisis Mensual"),
                     React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, `${filteredHistory.length} registros • ${turnoLabel}`)
                 ),
-                React.createElement("div", { style: { textAlign: "right" } },
-                    kpis.tO > 0 && React.createElement("div", { style: { fontSize: 36, fontWeight: 900, lineHeight: 1 } }, kpis.tO.toLocaleString("es-AR")),
-                    kpis.tO > 0 && React.createElement("div", { style: { fontSize: 11, color: "#93c5fd", marginTop: 4 } }, "llamadas totales")
+                React.createElement("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 } },
+                    kpis.tO > 0 && React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 36, fontWeight: 900, lineHeight: 1 } }, kpis.tO.toLocaleString("es-AR")),
+                        React.createElement("div", { style: { fontSize: 11, color: "#93c5fd", marginTop: 4 } }, "llamadas totales")
+                    ),
+                    React.createElement("button", {
+                        onClick: () => window.print(),
+                        style: {
+                            background: "rgba(255,255,255,0.15)", color: "#fff", border: "1px solid rgba(255,255,255,0.3)",
+                            borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 8, backdropFilter: "blur(4px)"
+                        }
+                    }, "📄 Generar Reporte (PDF)")
                 )
             )
         ),
@@ -2304,7 +2330,7 @@ function ViewMensual({ user }) {
         ),
 
         // ── COMPARISON CHART ──────────────────────────────────────────────────
-        compChart && React.createElement(Card, { style: { marginBottom: 20 } },
+        compChart && React.createElement(Card, { style: { marginBottom: 20 }, className: "page-break" },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy } }, "📊 Comparativa Mensual"),
                 filterTurno !== "all" && React.createElement(Badge, { label: turnoLabel, color: C.blue, bg: C.light })
@@ -2356,11 +2382,11 @@ function ViewMensual({ user }) {
                 ? history.find(h => h.firestoreId === selectedMonths[0])
                 : (filteredHistory.length === 1 ? filteredHistory[0] : null);
             if (!single || !single.detalles) return null;
-            return React.createElement(MensualHeatmap, { report: single, turnoFilter: filterTurno });
+            return React.createElement(MensualHeatmap, { report: single, turnoFilter: filterTurno, className: "page-break" });
         })(),
 
         // ── TABLE ──────────────────────────────────────────────────────────────
-        filteredHistory.length > 0 && React.createElement(Card, { style: { marginTop: 4 } },
+        filteredHistory.length > 0 && React.createElement(Card, { style: { marginTop: 4 }, className: "page-break" },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 16 } }, "📋 Registros Mensuales"),
             React.createElement("div", { style: { overflowX: "auto" } },
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
