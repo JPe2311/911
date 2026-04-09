@@ -1583,6 +1583,69 @@ function ViewMensual({ user }) {
     return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, count: target.length };
   }, [filteredHistory, selectedMonths, filterTurno, history]);
 
+  // ──── Monthly Comparison KPIs (per-month with deltas) ────────────────────
+  const monthlyCompData = useMemo(() => {
+    if (filteredHistory.length === 0) return null;
+    const target = selectedMonths.length > 0
+      ? history.filter(h => selectedMonths.includes(h.firestoreId))
+      : filteredHistory;
+    if (target.length === 0) return null;
+
+    const sorted = [...target].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
+
+    const monthStats = sorted.map(h => {
+      const rows = filterDetailsByTurno(h.detalles, filterTurno);
+      let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
+      if (rows && rows.length) {
+        rows.forEach(r => {
+          rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
+          rEC += r.ec || 0; rAV += r.av || 0;
+          if (r.manejo) { mSum += r.manejo; mCnt++; }
+          if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
+        });
+      } else {
+        rO = h.resumen.totalOfrecidas; rC = h.resumen.totalContestadas; rA = h.resumen.totalAbandonadas;
+      }
+      const pctAb = rO ? (rA / rO * 100) : 0;
+      const pctAt = rO ? (rC / rO * 100) : 0;
+      const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
+      const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
+      // Calculate unique days for daily averages
+      const uniqueDays = rows && rows.length ? new Set(rows.map(r => r.d)).size : 1;
+      const promDiario = uniqueDays ? Math.round(rO / uniqueDays) : 0;
+      const promAbandDiario = uniqueDays ? Math.round(rA / uniqueDays) : 0;
+      return {
+        label: h.meta.label, monthNum: h.meta.monthNum, year: h.meta.year,
+        firestoreId: h.firestoreId,
+        ofrecidas: rO, contestadas: rC, abandonadas: rA,
+        enCola: rEC, avisando: rAV,
+        pctAb, pctAt, avgManejo, avgAvisando,
+        promDiario, promAbandDiario, uniqueDays
+      };
+    });
+
+    // Calculate deltas (vs previous month)
+    const withDeltas = monthStats.map((cur, i) => {
+      if (i === 0) return { ...cur, deltas: null };
+      const prev = monthStats[i - 1];
+      const delta = (curVal, prevVal) => prevVal !== 0 ? ((curVal - prevVal) / prevVal * 100) : (curVal > 0 ? 100 : 0);
+      return {
+        ...cur,
+        deltas: {
+          ofrecidas: delta(cur.ofrecidas, prev.ofrecidas),
+          contestadas: delta(cur.contestadas, prev.contestadas),
+          abandonadas: delta(cur.abandonadas, prev.abandonadas),
+          pctAb: cur.pctAb - prev.pctAb,  // Simple difference for percentage points
+          pctAt: cur.pctAt - prev.pctAt,
+          avgManejo: cur.avgManejo - prev.avgManejo,
+          promDiario: delta(cur.promDiario, prev.promDiario),
+        }
+      };
+    });
+
+    return withDeltas;
+  }, [filteredHistory, selectedMonths, filterTurno, history]);
+
   // ──── Chart: Comparison bar ──────────────────────────────────────────────
   const compChart = useMemo(() => {
     if (filteredHistory.length === 0) return null;
