@@ -2144,25 +2144,48 @@ function ViewMensual({ user }) {
                 )
             ),
 
-            // ── Promedio diario de abandonadas comparison (bar sparkline) ──
-            monthlyCompData.length >= 2 && React.createElement("div", { style: { marginTop: 20, paddingTop: 20, borderTop: `1px solid ${C.border}` } },
-                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 14 } }, "📊 Promedio Diario de Abandonadas por Mes"),
-                React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "flex-end", height: 120 } },
+            // ── Promedio diario de abandonadas comparison (Ranking Style) ──
+            monthlyCompData.length >= 2 && React.createElement("div", { style: { marginTop: 24, paddingTop: 24, borderTop: `1px dashed ${C.border}` } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 } },
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontWeight: 900, fontSize: 14, color: C.navy } }, "📊 Ranking de Desempeño (Abandono)"),
+                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por mes")
+                    ),
                     (() => {
+                        const avgAb = (monthlyCompData.reduce((s, m) => s + m.pctAb, 0) / monthlyCompData.length).toFixed(1);
+                        return React.createElement("div", { style: { background: "#f1f5f9", padding: "6px 12px", borderRadius: 8, textAlign: "right" } },
+                            React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase" } }, "Promedio Global"),
+                            React.createElement("div", { style: { fontSize: 13, fontWeight: 900, color: C.navy } }, `${avgAb}%`)
+                        );
+                    })()
+                ),
+                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+                    (() => {
+                        const sortedByAb = [...monthlyCompData].sort((a, b) => b.pctAb - a.pctAb);
                         const maxAbd = Math.max(...monthlyCompData.map(m => m.promAbandDiario), 1);
-                        return monthlyCompData.map((m, i) => {
-                            const pct = (m.promAbandDiario / maxAbd) * 100;
+                        
+                        return sortedByAb.map((m, i) => {
                             const barColor = m.pctAb > 25 ? C.red : m.pctAb > 15 ? C.orange : C.green;
-                            return React.createElement("div", { key: m.firestoreId, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
-                                React.createElement("span", { style: { fontSize: 12, fontWeight: 900, color: barColor } }, m.promAbandDiario),
-                                React.createElement("div", {
-                                    style: {
-                                        width: "100%", maxWidth: 60, height: `${Math.max(pct, 5)}%`,
-                                        background: `linear-gradient(180deg, ${barColor}, ${barColor}88)`,
-                                        borderRadius: "6px 6px 0 0", transition: "height .4s", minHeight: 6
-                                    }
-                                }),
-                                React.createElement("span", { style: { fontSize: 9, fontWeight: 700, color: C.gray, textAlign: "center", whiteSpace: "nowrap" } }, m.label)
+                            const bgAlpha = m.pctAb > 25 ? "rgba(220,38,38,0.1)" : m.pctAb > 15 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)";
+                            
+                            return React.createElement("div", { key: m.firestoreId, style: { display: "grid", gridTemplateColumns: "140px 1fr 100px", alignItems: "center", gap: 15, padding: "8px 12px", borderRadius: 10, background: i === 0 && m.pctAb > 25 ? "rgba(220,38,38,0.03)" : "transparent" } },
+                                // Month Label
+                                React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
+                                    React.createElement("span", { style: { width: 18, height: 18, borderRadius: 5, background: i === 0 ? C.navy : "#e2e8f0", color: i === 0 ? "#fff" : C.gray, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" } }, i + 1),
+                                    m.label
+                                ),
+                                // Progress Bar for Rate
+                                React.createElement("div", { style: { position: "relative" } },
+                                    React.createElement("div", { style: { width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" } },
+                                        React.createElement("div", { style: { width: `${Math.min(m.pctAb * 2, 100)}%`, height: "100%", background: barColor, borderRadius: 4, transition: "width .6s ease-out" } })
+                                    ),
+                                    React.createElement("div", { style: { position: "absolute", top: -14, left: `${Math.min(m.pctAb * 2, 100)}%`, fontSize: 9, fontWeight: 800, color: barColor, transform: "translateX(-50%)", whiteSpace: "nowrap" } }, `${m.pctAb.toFixed(1)}%`)
+                                ),
+                                // Volume Indicator
+                                React.createElement("div", { style: { textAlign: "right" } },
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 900, color: C.navy } }, m.promAbandDiario),
+                                    React.createElement("div", { style: { fontSize: 9, fontWeight: 600, color: C.gray, textTransform: "uppercase" } }, "aband./día")
+                                )
                             );
                         });
                     })()
