@@ -612,13 +612,29 @@ async function updateStaffTurno(normName, newTurno) {
 async function saveOperatorPerformance(list, month, year) {
     const db = getDB();
     if (!db) return;
-    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc, query, where, getDocs, collection, writeBatch } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const perfRef = collection(db, "operator_performance");
-    for (const p of list) {
-        const id = `${p.normName}_${month}_${year}`;
-        await setDoc(doc(perfRef, id), p, { merge: true });
+    
+    try {
+        // 1. Limpiar datos previos del mismo mes/año para evitar "fantasmas"
+        const q = query(perfRef, where("month", "==", month), where("year", "==", year));
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+
+        // 2. Guardar nuevos datos
+        const saveBatch = writeBatch(db);
+        for (const p of list) {
+            const id = `${p.normName}_${month}_${year}`;
+            saveBatch.set(doc(perfRef, id), p); // Sin merge: true porque ya limpiamos
+        }
+        await saveBatch.commit();
+        return true;
+    } catch (e) {
+        console.error("Error saving performance:", e);
+        return false;
     }
-    return true;
 }
 
 async function getStaffList() {
@@ -636,6 +652,20 @@ async function getOperatorPerformance(month, year) {
     let q = collection(db, "operator_performance");
     if (month && month !== "all") q = query(q, where("month", "==", month));
     if (year && year !== "all") q = query(q, where("year", "==", year));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data());
+}
+
+async function getOperatorHistory(normName, year) {
+    const db = getDB();
+    if (!db) return [];
+    const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const q = query(
+        collection(db, "operator_performance"), 
+        where("normName", "==", normName),
+        where("year", "==", year),
+        orderBy("month", "asc")
+    );
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
 }
@@ -2641,6 +2671,7 @@ function ViewAnalisisOperadores({ user, onBack }) {
     const [perf, setPerf] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState(null); // normName of expanded agent
+    const [history, setHistory] = useState([]); // history of expanded agent
     const [filter, setFilter] = useState({ month: (new Date().getMonth() + 1).toString().padStart(2, "0"), year: new Date().getFullYear().toString() });
 
     const loadData = async () => {
@@ -2651,6 +2682,14 @@ function ViewAnalisisOperadores({ user, onBack }) {
     };
 
     useEffect(() => { loadData(); }, [filter]);
+
+    useEffect(() => {
+        if (expanded) {
+            getOperatorHistory(expanded, filter.year).then(setHistory);
+        } else {
+            setHistory([]);
+        }
+    }, [expanded, filter.year]);
 
     const handleUpload = async (e) => {
         const file = e.target.files[0];
@@ -2729,7 +2768,7 @@ function ViewAnalisisOperadores({ user, onBack }) {
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Atendidas", "Prod (At/Hr)", "Preparado (Voz)", "Calidad"].map(h =>
+                        ["Operador", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
@@ -2757,7 +2796,7 @@ function ViewAnalisisOperadores({ user, onBack }) {
                                         React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue })
                                     )
                                 ),
-                                React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 600 } }, fmtSeconds(p.totalPreparado)),
+                                React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 700 } }, `${p.pctProd}%`),
                                 React.createElement("td", { style: { padding: "14px 20px" } },
                                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                         React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
@@ -2768,7 +2807,7 @@ function ViewAnalisisOperadores({ user, onBack }) {
                             expanded === p.normName && React.createElement("tr", { style: { background: "#f8fafc" } },
                                 React.createElement("td", { colSpan: 5, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
                                     React.createElement("div", { className: "animate-slide-down" },
-                                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 } },
+                                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 24 } },
                                             // Col 1: Distribución
                                             React.createElement("div", null,
                                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "📊 Volumen de Llamadas"),
@@ -2791,8 +2830,66 @@ function ViewAnalisisOperadores({ user, onBack }) {
                                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "🔌 Estado de Conexión"),
                                                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
                                                     React.createElement(RowStat, { label: "Total Conectado", value: fmtSeconds(p.totalConectado), color: C.navy }),
-                                                    React.createElement(RowStat, { label: "Voz Preparada", value: fmtSeconds(p.totalPreparado), color: C.green }),
-                                                    React.createElement(RowStat, { label: "Voz No Prep.", value: fmtSeconds(p.totalNoPreparado), color: C.orange })
+                                                    React.createElement(RowStat, { label: "Voz Preparada", value: `${p.pctProd}%`, color: C.green }),
+                                                    React.createElement(RowStat, { label: "Voz No Prep.", value: `${p.pctNoProd}%`, color: C.orange })
+                                                )
+                                            )
+                                        ),
+
+                                        // ── SECCIÓN COMPARATIVA (NUEVA) ──────────────────────────
+                                        history.length > 1 && React.createElement("div", { style: { paddingTop: 24, borderTop: `1px dashed ${C.border}` } },
+                                            React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, marginBottom: 16 } }, `📈 Evolución Anual: ${p.name}`),
+                                            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 24 } },
+                                                // Gráfico de Tendencia
+                                                React.createElement("div", { style: { background: "#fff", padding: 16, borderRadius: 12, border: `1px solid ${C.border}`, height: 220 } },
+                                                    React.createElement(ChartLine, {
+                                                        id: `trend-${p.normName}`,
+                                                        data: {
+                                                            labels: history.map(h => `Mes ${h.month}`),
+                                                            datasets: [{
+                                                                label: "% Voz Preparada",
+                                                                data: history.map(h => h.pctProd),
+                                                                borderColor: C.green,
+                                                                backgroundColor: "rgba(34,197,94,0.1)",
+                                                                tension: 0.3,
+                                                                fill: true,
+                                                                pointRadius: 4,
+                                                                pointBackgroundColor: C.green
+                                                            }]
+                                                        },
+                                                        options: {
+                                                            responsive: true, maintainAspectRatio: false,
+                                                            plugins: { legend: { display: false } },
+                                                            scales: { 
+                                                                y: { min: 0, max: 100, ticks: { callback: v => `${v}%`, font: { size: 9 } } },
+                                                                x: { ticks: { font: { size: 9 } } }
+                                                            }
+                                                        }
+                                                    })
+                                                ),
+                                                // Tabla Histórica
+                                                React.createElement("div", null,
+                                                    React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
+                                                        React.createElement("thead", null,
+                                                            React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
+                                                                ["Mes", "Cont.", "At/Hr", "% Voz"].map(h => 
+                                                                    React.createElement("th", { key: h, style: { padding: "8px 10px", fontWeight: 800, color: C.gray } }, h)
+                                                                )
+                                                            )
+                                                        ),
+                                                        React.createElement("tbody", null,
+                                                            history.map(h => {
+                                                                const hours = (h.totalConectado / 3600) || 1;
+                                                                const coef = (h.c / hours).toFixed(1);
+                                                                return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}` } },
+                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700 } }, h.month),
+                                                                    React.createElement("td", { style: { padding: "8px 10px" } }, h.c),
+                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.blue } }, coef),
+                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.green } }, `${h.pctProd}%`)
+                                                                );
+                                                            })
+                                                        )
+                                                    )
                                                 )
                                             )
                                         )
