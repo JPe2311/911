@@ -1782,19 +1782,122 @@ function ViewMensual({ user }) {
       React.createElement(StatKpi, { label: "Tiempo Manejo Prom.", value: kpis.avgManejo ? fmtSeconds(kpis.avgManejo) : "—", accent: "#7c3aed" })
     ),
 
-    // ── MONTH SELECTION ───────────────────────────────────────────────────
-    filteredHistory.length > 1 && React.createElement(Card, { style: { marginBottom: 20 } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "📅 Seleccionar meses para comparar"),
-      React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-        filteredHistory.map(h => {
-          const isSel = selectedMonths.includes(h.firestoreId);
-          return React.createElement("button", {
-            key: h.firestoreId,
-            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]),
-            style: { padding: "8px 18px", borderRadius: 8, border: `2px solid ${isSel ? C.blue : C.border}`, background: isSel ? C.light : "#fff", color: isSel ? C.blue : C.gray, fontWeight: 700, fontSize: 12, cursor: "pointer", transition: "all .15s" }
-          }, isSel ? `✓ ${h.meta.label}` : h.meta.label);
-        })
+    // ── PER-MONTH KPI CARDS (general → particular) ────────────────────────
+    filteredHistory.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
+      React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 } },
+        "📅 KPIs por Mes",
+        React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${filteredHistory.length} ${filteredHistory.length === 1 ? "mes" : "meses"}`)
+      ),
+      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 } },
+        (() => {
+          // Compute max ofrecidas across visible months for relative bar sizing
+          const allRO = filteredHistory.map(h => {
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
+            return rows && rows.length ? rows.reduce((s,r) => s + (r.o||0), 0) : h.resumen.totalOfrecidas;
+          });
+          const maxRO = Math.max(...allRO, 1);
+
+          return filteredHistory.map((h, i) => {
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
+            let rO, rC, rA, rEC, rAV, rM;
+            if (rows && rows.length) {
+              rO = rows.reduce((s,r) => s+(r.o||0), 0);
+              rC = rows.reduce((s,r) => s+(r.c||0), 0);
+              rA = rows.reduce((s,r) => s+(r.ab||0), 0);
+              rEC = rows.reduce((s,r) => s+(r.ec||0), 0);
+              rAV = rows.reduce((s,r) => s+(r.av||0), 0);
+              const mRows = rows.filter(r => r.manejo);
+              rM = mRows.length ? Math.round(mRows.reduce((s,r) => s+r.manejo, 0)/mRows.length) : 0;
+            } else {
+              rO = h.resumen.totalOfrecidas; rC = h.resumen.totalContestadas; rA = h.resumen.totalAbandonadas;
+              rEC = 0; rAV = 0; rM = 0;
+            }
+            const pctAt = rO ? (rC/rO*100) : 0;
+            const pctAb = rO ? (rA/rO*100) : 0;
+            const isSel = selectedMonths.includes(h.firestoreId);
+            const atColor = pctAt >= 85 ? C.green : pctAt >= 70 ? C.yellow : C.red;
+            const abColor = pctAb > 25 ? C.red : pctAb > 15 ? C.orange : C.green;
+
+            return React.createElement("div", {
+              key: h.firestoreId,
+              onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]),
+              style: {
+                background: "#fff", borderRadius: 12, padding: "18px 20px",
+                border: `2px solid ${isSel ? C.blue : C.border}`,
+                boxShadow: isSel ? `0 4px 20px rgba(27,58,107,0.15)` : "0 1px 4px rgba(0,0,0,0.04)",
+                cursor: "pointer", transition: "all .2s",
+                position: "relative", overflow: "hidden"
+              }
+            },
+              // Accent top bar
+              React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 4, background: `linear-gradient(90deg, ${C.blue}, ${C.mid})`, borderRadius: "12px 12px 0 0" } }),
+              // Header row
+              React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, marginTop: 4 } },
+                React.createElement("div", null,
+                  React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, h.meta.label),
+                  React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${h.meta.year} — ${MONTH_NAMES[h.meta.monthNum] || ""}`)
+                ),
+                isSel && React.createElement("div", { style: { background: C.light, color: C.blue, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 700 } }, "✓ Seleccionado")
+              ),
+              // Main metric: ofrecidas with relative bar
+              React.createElement("div", { style: { marginBottom: 12 } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 } },
+                  React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.8 } }, "Llamadas Ofrecidas"),
+                  React.createElement("span", { style: { fontSize: 22, fontWeight: 900, color: C.mid } }, rO.toLocaleString("es-AR"))
+                ),
+                React.createElement("div", { style: { background: "#f1f5f9", borderRadius: 99, height: 6, overflow: "hidden" } },
+                  React.createElement("div", { style: { width: `${(rO / maxRO) * 100}%`, background: `linear-gradient(90deg, ${C.blue}, ${C.mid})`, height: "100%", borderRadius: 99, transition: "width .4s" } })
+                )
+              ),
+              // 3-stat row: contestadas, abandonadas, rates
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 } },
+                // Contestadas
+                React.createElement("div", { style: { background: C.greenBg, borderRadius: 8, padding: "10px 10px" } },
+                  React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: C.green, textTransform: "uppercase", marginBottom: 3 } }, "Contestadas"),
+                  React.createElement("div", { style: { fontSize: 18, fontWeight: 900, color: C.green, lineHeight: 1 } }, rC.toLocaleString("es-AR")),
+                  React.createElement("div", { style: { fontSize: 10, color: C.green, marginTop: 3 } }, `${pctAt.toFixed(1)}%`)
+                ),
+                // Abandonadas
+                React.createElement("div", { style: { background: C.redBg, borderRadius: 8, padding: "10px 10px" } },
+                  React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: C.red, textTransform: "uppercase", marginBottom: 3 } }, "Abandonadas"),
+                  React.createElement("div", { style: { fontSize: 18, fontWeight: 900, color: C.red, lineHeight: 1 } }, rA.toLocaleString("es-AR")),
+                  React.createElement("div", { style: { fontSize: 10, color: C.red, marginTop: 3 } }, `${pctAb.toFixed(1)}%`)
+                ),
+                // Manejo promedio
+                React.createElement("div", { style: { background: "#f5f3ff", borderRadius: 8, padding: "10px 10px" } },
+                  React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", marginBottom: 3 } }, "T. Manejo"),
+                  React.createElement("div", { style: { fontSize: 18, fontWeight: 900, color: "#7c3aed", lineHeight: 1 } }, rM ? fmtSeconds(rM) : "—"),
+                  React.createElement("div", { style: { fontSize: 10, color: "#7c3aed", marginTop: 3 } }, "promedio")
+                )
+              ),
+              // Rate badges + cola/avisando
+              React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4, background: pctAt >= 85 ? C.greenBg : pctAt >= 70 ? C.ylBg : C.redBg, borderRadius: 6, padding: "4px 8px" } },
+                  React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: atColor } }, `✓ ${pctAt.toFixed(1)}% atendidas`)
+                ),
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4, background: pctAb > 25 ? C.redBg : pctAb > 15 ? C.orBg : C.greenBg, borderRadius: 6, padding: "4px 8px" } },
+                  React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: abColor } }, `✕ ${pctAb.toFixed(1)}% abandono`)
+                ),
+                rEC > 0 && React.createElement("div", { style: { background: C.orBg, borderRadius: 6, padding: "4px 8px" } },
+                  React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.orange } }, `Cola: ${rEC.toLocaleString()}`)
+                ),
+                rAV > 0 && React.createElement("div", { style: { background: C.ylBg, borderRadius: 6, padding: "4px 8px" } },
+                  React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.yellow } }, `Avisando: ${rAV.toLocaleString()}`)
+                )
+              )
+            );
+          });
+        })()
       )
+    ),
+
+    // ── MONTH COMPARISON SELECTION ────────────────────────────────────────
+    filteredHistory.length > 1 && React.createElement("div", { style: { marginBottom: 16, display: "flex", alignItems: "center", gap: 8 } },
+      React.createElement("div", { style: { fontSize: 12, color: C.gray, fontWeight: 600 } }, "💡 Hacé clic en las tarjetas para seleccionar meses y comparar sus gráficos"),
+      selectedMonths.length > 0 && React.createElement("button", {
+        onClick: () => setSelectedMonths([]),
+        style: { padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", fontSize: 11, fontWeight: 600, color: C.gray, cursor: "pointer" }
+      }, "✕ Deseleccionar todo")
     ),
 
     // ── COMPARISON CHART ──────────────────────────────────────────────────
