@@ -38,19 +38,27 @@ const C = {
 //  PARSERS
 // ════════════════════════════════════════════════════════════════════════════
 function parseTimeToSeconds(str) {
-    if (!str) return 0;
-    str = str.trim();
+    if (!str || typeof str !== "string") return 0;
+    str = str.trim().toLowerCase();
     let total = 0;
-    const m = str.match(/(\d+)\s*minutos?/i);
-    const s = str.match(/(\d+)\s*segundos?/i);
+    
+    // Check for HH:MM:SS or MM:SS format
+    const parts = str.split(":").map(p => parseInt(p, 10));
+    if (parts.length === 3 && parts.every(p => !isNaN(p))) {
+        return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2 && parts.every(p => !isNaN(p))) {
+        return parts[0] * 60 + parts[1];
+    }
+
+    // Check for "X min Y seg" format
+    const m = str.match(/(\d+)\s*m/i);
+    const s = str.match(/(\d+)\s*s/i);
     if (m) total += parseInt(m[1], 10) * 60;
     if (s) total += parseInt(s[1], 10);
-    const parts = str.split(":").map(p => parseInt(p, 10));
-    if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
-        total = parts[0] * 60 + parts[1];
-    } else if (parts.length === 3 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1]) && !Number.isNaN(parts[2])) {
-        total = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    }
+    
+    // If nothing matched, try parsing as raw number
+    if (total === 0 && !isNaN(parseInt(str))) total = parseInt(str);
+    
     return total;
 }
 
@@ -1158,6 +1166,27 @@ function DistritoRow({ d, maxSec, rank, variant }) {
     );
 }
 
+// ── Helper: Aggregate stats for a specific shift label ──────────────────────
+function getTurnoStats(turnoLabel, history) {
+    if (!history || !history.length) return null;
+    const filtered = history.filter(h => h.turnoLabel === turnoLabel);
+    if (!filtered.length) return null;
+
+    let totalOfrecidas = 0, totalContestadas = 0, totalAbandonadas = 0;
+    filtered.forEach(h => {
+        totalOfrecidas += (h.resumen?.totalOfrecidas || 0);
+        totalContestadas += (h.resumen?.totalContestadas || 0);
+        totalAbandonadas += (h.resumen?.totalAbandonadas || 0);
+    });
+
+    return {
+        cantidad: filtered.length,
+        totalOfrecidas,
+        totalContestadas,
+        totalAbandonadas
+    };
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: HISTORIAL — Firebase + local fallback
 // ════════════════════════════════════════════════════════════════════════════
@@ -1580,7 +1609,7 @@ function ViewMensual({ user }) {
         const pctAb = tO ? (tA / tO * 100) : 0;
         const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
         const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
-        return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, count: target.length };
+        return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, totalManejo: mSum, totalAvisando: avSum, count: target.length };
     }, [filteredHistory, selectedMonths, filterTurno, history]);
 
     // ──── Monthly Comparison KPIs (per-month with deltas) ────────────────────
@@ -1610,7 +1639,6 @@ function ViewMensual({ user }) {
             const pctAt = rO ? (rC / rO * 100) : 0;
             const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
             const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
-            // Calculate unique days for daily averages
             const uniqueDays = rows && rows.length ? new Set(rows.map(r => r.d)).size : 1;
             const promDiario = uniqueDays ? Math.round(rO / uniqueDays) : 0;
             const promAbandDiario = uniqueDays ? Math.round(rA / uniqueDays) : 0;
@@ -1620,6 +1648,7 @@ function ViewMensual({ user }) {
                 ofrecidas: rO, contestadas: rC, abandonadas: rA,
                 enCola: rEC, avisando: rAV,
                 pctAb, pctAt, avgManejo, avgAvisando,
+                totalManejo: mSum, totalAvisando: avSum,
                 promDiario, promAbandDiario, uniqueDays
             };
         });
@@ -1638,10 +1667,13 @@ function ViewMensual({ user }) {
                     pctAb: cur.pctAb - prev.pctAb,  // Simple difference for percentage points
                     pctAt: cur.pctAt - prev.pctAt,
                     avgManejo: cur.avgManejo - prev.avgManejo,
+                    totalManejo: delta(cur.totalManejo, prev.totalManejo),
                     promDiario: delta(cur.promDiario, prev.promDiario),
                 }
             };
         });
+
+        return withDeltas;
 
         return withDeltas;
     }, [filteredHistory, selectedMonths, filterTurno, history]);
@@ -1935,7 +1967,7 @@ function ViewMensual({ user }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
-                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Manejo"].map(h =>
+                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Total Manejo", "T. Promedio"].map(h =>
                                 React.createElement("th", {
                                     key: h + Math.random(), style: {
                                         padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
@@ -1998,6 +2030,15 @@ function ViewMensual({ user }) {
                                 ),
                                 React.createElement(DeltaCell, { val: d?.pctAt, invert: false, unit: "" }),
                                 React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 600, color: C.navy, fontSize: 12 } }, m.promDiario.toLocaleString("es-AR")),
+                                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontFamily: "monospace", color: C.blue, fontSize: 11, fontWeight: 700 } },
+                                    (() => {
+                                        const totalSec = m.totalManejo;
+                                        const h = Math.floor(totalSec / 3600);
+                                        const min = Math.floor((totalSec % 3600) / 60);
+                                        const sec = totalSec % 60;
+                                        return `${h}h ${min}m`;
+                                    })()
+                                ),
                                 React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontFamily: "monospace", fontWeight: 700, color: "#7c3aed", fontSize: 12 } }, m.avgManejo ? fmtSeconds(m.avgManejo) : "—")
                             );
                         })
@@ -2019,7 +2060,17 @@ function ViewMensual({ user }) {
                             React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 12 } },
                                 (() => { const avg = monthlyCompData.length ? Math.round(monthlyCompData.reduce((s, m) => s + m.promDiario, 0) / monthlyCompData.length) : 0; return avg.toLocaleString("es-AR"); })()
                             ),
-                            React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontFamily: "monospace", fontSize: 12 } }, kpis.avgManejo ? fmtSeconds(kpis.avgManejo) : "—")
+                            React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 11, color: "#fff" } },
+                                (() => {
+                                    const totalSec = kpis.totalManejo;
+                                    const h = Math.floor(totalSec / 3600);
+                                    const m = Math.floor((totalSec % 3600) / 60);
+                                    return `${h}h ${m}m`;
+                                })()
+                            ),
+                            React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 11, color: "#fff" } },
+                                fmtSeconds(kpis.avgManejo)
+                            )
                         )
                     )
                 )
