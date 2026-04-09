@@ -754,8 +754,8 @@ function ChartLine({ id, data, options }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  UI PRIMITIVES
 // ════════════════════════════════════════════════════════════════════════════
-const Card = ({ children, style = {} }) =>
-    React.createElement("div", { className: "card", style: { background: C.card, borderRadius: 14, padding: 24, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.05)", ...style } }, children);
+const Card = ({ children, style = {}, ...props }) =>
+    React.createElement("div", { className: "card", style: { background: C.card, borderRadius: 14, padding: 24, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.05)", ...style }, ...props }, children);
 
 const Badge = ({ label, color, bg }) =>
     React.createElement("span", { style: { background: bg, color, borderRadius: 99, padding: "3px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" } }, label);
