@@ -2738,7 +2738,7 @@ function ViewAnalisisOperadores({ user, onBack }) {
                     loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando métricas...")) :
                     combined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período. Cargá el reporte de OPERADORES.")) :
                     combined.map((p, i) => (
-                        React.Fragment.createElement(React.Fragment, { key: p.normName },
+                        React.createElement(React.Fragment, { key: p.normName },
                             React.createElement("tr", { 
                                 onClick: () => setExpanded(expanded === p.normName ? null : p.normName),
                                 style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa", transition: "all .1s", cursor: "pointer" },
