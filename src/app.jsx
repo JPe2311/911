@@ -291,6 +291,58 @@ function parseDespacho(raw, type = "despacho") {
 }
 
 
+// ─── OPERATOR PERFORMANCE HELPERS ───────────────────────────────────────────
+function normalizeName(name) {
+    if (!name || typeof name !== "string") return "";
+    return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim().replace(/\s+/g, " ");
+}
+
+function parseNominaCSV(raw) {
+    const lines = parseLines(raw);
+    const result = [];
+    lines.forEach((l, i) => {
+        if (!l.trim() || i === 0 && l.toUpperCase().includes("JERARQUIA")) return;
+        const cols = l.split(";");
+        if (cols.length < 3) return;
+        result.push({
+            jerarquia: cols[0]?.trim(),
+            name: cols[1]?.trim(),
+            normName: normalizeName(cols[1]),
+            turno: cols[2]?.trim()
+        });
+    });
+    return result;
+}
+
+function parseOperadoresMensualCSV(raw, month, year) {
+    const lines = parseLines(raw);
+    const result = [];
+    lines.forEach((l, i) => {
+        if (!l.trim() || i === 0 && l.toUpperCase().includes("AGENTE")) return;
+        const cols = l.split(";");
+        if (cols.length < 11) return;
+        // Agente;Ofrecidas;Contestadas;Abandonadas;Avisando;En servicio;Conectado;Voz preparada;Voz no preparada;Voz preparada;Voz no preparada
+        const name = cols[0]?.trim();
+        result.push({
+            name,
+            normName: normalizeName(name),
+            month,
+            year,
+            o: parseInt(cols[1]) || 0,
+            c: parseInt(cols[2]) || 0,
+            ab: parseInt(cols[3]) || 0,
+            avgAvisando: parseTimeToSeconds(cols[4]),
+            avgManejo: parseTimeToSeconds(cols[5]),
+            totalConectado: parseTimeToSeconds(cols[6]),
+            totalPreparado: parseTimeToSeconds(cols[7]),
+            totalNoPreparado: parseTimeToSeconds(cols[8]),
+            pctProd: parseFloat(cols[9].replace(",", ".")) || 0,
+            pctNoProd: parseFloat(cols[10].replace(",", ".")) || 0
+        });
+    });
+    return result;
+}
+
 function detectType(text, filename) {
     const normalize = str => str.toLowerCase().trim()
         .replace(/á/g, "a").replace(/é/g, "e").replace(/í/g, "i").replace(/ó/g, "o").replace(/ú/g, "u")
@@ -535,6 +587,57 @@ async function loadMensualFromFirestore() {
         console.error("Error loading monthly records:", e);
         throw e; // Lanzar el error para que la UI lo capture
     }
+}
+
+// ─── FIRESTORE: STAFF & PERFORMANCE ─────────────────────────────────────────
+
+async function saveStaffToFirestore(list) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const staffRef = collection(db, "staff");
+    for (const s of list) {
+        await setDoc(doc(staffRef, s.normName), s, { merge: true });
+    }
+    return true;
+}
+
+async function updateStaffTurno(normName, newTurno) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await updateDoc(doc(db, "staff", normName), { turno: newTurno });
+}
+
+async function saveOperatorPerformance(list, month, year) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const perfRef = collection(db, "operator_performance");
+    for (const p of list) {
+        const id = `${p.normName}_${month}_${year}`;
+        await setDoc(doc(perfRef, id), p, { merge: true });
+    }
+    return true;
+}
+
+async function getStaffList() {
+    const db = getDB();
+    if (!db) return [];
+    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDocs(collection(db, "staff"));
+    return snap.docs.map(d => d.data());
+}
+
+async function getOperatorPerformance(month, year) {
+    const db = getDB();
+    if (!db) return [];
+    const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    let q = collection(db, "operator_performance");
+    if (month && month !== "all") q = query(q, where("month", "==", month));
+    if (year && year !== "all") q = query(q, where("year", "==", year));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2530,6 +2633,258 @@ function MensualHeatmap({ report, turnoFilter }) {
     );
 }
 
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW: GESTIÓN DE PERSONAL (Staff Management)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewGestionPersonal({ user, onBack }) {
+    const [staff, setStaff] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(null);
+    const [newTurno, setNewTurno] = useState("");
+
+    const loadStaff = async () => {
+        setLoading(true);
+        const list = await getStaffList();
+        setStaff(list.sort((a, b) => a.name.localeCompare(b.name)));
+        setLoading(false);
+    };
+
+    useEffect(() => { loadStaff(); }, []);
+
+    const handleUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        const list = parseNominaCSV(text);
+        if (list.length) {
+            await saveStaffToFirestore(list);
+            loadStaff();
+        }
+    };
+
+    const handleSaveTurno = async () => {
+        if (!editing) return;
+        await updateStaffTurno(editing.normName, newTurno);
+        setEditing(null);
+        loadStaff();
+    };
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy, transition: "all .2s" }, onMouseOver: e => e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)", onMouseOut: e => e.currentTarget.style.boxShadow = "none" }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Gestión de Personal"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Administrar nómina y asignación de turnos operativos")
+                )
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, background: C.mid, color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 } },
+                    "📤 Subir Nómina (CSV)",
+                    React.createElement("input", { type: "file", accept: ".csv", onChange: handleUpload, style: { display: "none" } })
+                )
+            )
+        ),
+
+        React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+            loading ? React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando nómina...") :
+            React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                React.createElement("thead", null,
+                    React.createElement("tr", { style: { background: "#f8fafc", textAlign: "left" } },
+                        ["Jerarquía", "Nombre Gancho", "Turno", "Acciones"].map(h =>
+                            React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 11, fontWeight: 800, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5 } }, h)
+                        )
+                    )
+                ),
+                React.createElement("tbody", null,
+                    staff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay personal registrado. Subí el archivo NOMINA_OPERADORES.csv")) :
+                    staff.map((s, i) =>
+                        React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
+                            React.createElement("td", { style: { padding: "14px 20px", fontSize: 13 } }, s.jerarquia),
+                            React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, fontWeight: 700, color: C.navy } }, s.name),
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement(Badge, {
+                                    label: s.turno || "Sin turno",
+                                    color: s.turno === "07-19" ? C.blue : s.turno === "19-07" ? C.navy : C.gray,
+                                    bg: s.turno === "07-19" ? C.light : s.turno === "19-07" ? "rgba(30,58,138,0.1)" : "#f1f5f9"
+                                })
+                            ),
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement("button", {
+                                    onClick: () => { setEditing(s); setNewTurno(s.turno || ""); },
+                                    style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700, color: C.blue }
+                                }, "Editar")
+                            )
+                        )
+                    )
+                )
+            )
+        ),
+
+        editing && React.createElement("div", { style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 } },
+            React.createElement("div", { style: { background: "#fff", padding: 32, borderRadius: 16, width: 400, boxShadow: "0 20px 40px rgba(0,0,0,0.2)" } },
+                React.createElement("h3", { style: { margin: "0 0 16px" } }, `Editar Turno: ${editing.name}`),
+                React.createElement("div", { style: { marginBottom: 24 } },
+                    React.createElement("label", { style: { display: "block", fontSize: 12, fontWeight: 700, color: C.gray, marginBottom: 8 } }, "Asignar Turno:"),
+                    React.createElement("input", {
+                        value: newTurno,
+                        onChange: e => setNewTurno(e.target.value.toUpperCase()),
+                        placeholder: "Ej: 07-19, 19-07",
+                        style: { width: "100%", padding: "12px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 14 }
+                    })
+                ),
+                React.createElement("div", { style: { display: "flex", gap: 12, justifyContent: "flex-end" } },
+                    React.createElement("button", { onClick: () => setEditing(null), style: { padding: "10px 16px", border: "none", background: "transparent", color: C.gray, fontWeight: 700, cursor: "pointer" } }, "Cancelar"),
+                    React.createElement("button", { onClick: handleSaveTurno, style: { padding: "10px 24px", borderRadius: 8, border: "none", background: C.blue, color: "#fff", fontWeight: 700, cursor: "pointer" } }, "Guardar")
+                )
+            )
+        )
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW: ANÁLISIS DE OPERADORES (Métricas Mensuales)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewAnalisisOperadores({ user, onBack }) {
+    const [perf, setPerf] = useState([]);
+    const [staff, setStaff] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState({ month: (new Date().getMonth() + 1).toString().padStart(2, "0"), year: new Date().getFullYear().toString() });
+
+    const loadData = async () => {
+        setLoading(true);
+        const [pList, sList] = await Promise.all([
+            getOperatorPerformance(filter.month, filter.year),
+            getStaffList()
+        ]);
+        setPerf(pList);
+        setStaff(sList);
+        setLoading(false);
+    };
+
+    useEffect(() => { loadData(); }, [filter]);
+
+    const handleUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const text = await file.text();
+        const list = parseOperadoresMensualCSV(text, filter.month, filter.year);
+        if (list.length) {
+            await saveOperatorPerformance(list, filter.month, filter.year);
+            loadData();
+        }
+    };
+
+    const combined = useMemo(() => {
+        return perf.map(p => {
+            const member = staff.find(s => s.normName === p.normName);
+            // Coeficientes: 
+            // 1. Prod: Contestadas / (Horas Conectado)
+            const hours = (p.totalConectado / 3600) || 1;
+            const coefProd = p.c / hours;
+            // 2. Velocidad: Tiempo Avisando / Contestadas (ya viene como promedio en avgAvisando)
+            return {
+                ...p,
+                turno: member?.turno || "N/A",
+                coefProd: coefProd.toFixed(1),
+                scoreQuality: (p.pctProd).toFixed(1)
+            };
+        }).sort((a, b) => b.c - a.c);
+    }, [perf, staff]);
+
+    const stats = useMemo(() => {
+        if (!combined.length) return null;
+        return {
+            totalC: combined.reduce((s, x) => s + x.c, 0),
+            avgProd: (combined.reduce((s, x) => s + parseFloat(x.coefProd), 0) / combined.length).toFixed(1),
+            avgQual: (combined.reduce((s, x) => s + parseFloat(x.scoreQuality), 0) / combined.length).toFixed(1)
+        };
+    }, [combined]);
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy, transition: "all .2s" } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📊 Análisis de Desempeño"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Métricas de productividad y calidad mensual por operador")
+                )
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("select", {
+                    value: filter.month,
+                    onChange: e => setFilter({ ...filter, month: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(m =>
+                        React.createElement("option", { key: m, value: m }, m)
+                    )
+                ),
+                React.createElement("select", {
+                    value: filter.year,
+                    onChange: e => setFilter({ ...filter, year: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+                ),
+                React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, background: C.blue, color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 } },
+                    "📤 Cargar Reporte Mensual",
+                    React.createElement("input", { type: "file", accept: ".csv", onChange: handleUpload, style: { display: "none" } })
+                )
+            )
+        ),
+
+        stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
+            React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
+            React.createElement(StatKpi, { label: "Coef. Prod. Promedio", value: stats.avgProd, sub: "Contestadas / Hora Conex.", accent: C.green }),
+            React.createElement(StatKpi, { label: "Puntaje Calidad Avg", value: `${stats.avgQual}%`, sub: "% Tiempo Productivo", accent: C.mid })
+        ),
+
+        React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+            React.createElement("div", { style: { padding: "16px 20px", background: "#f8fafc", borderBottom: `1px solid ${C.border}`, fontWeight: 800, color: C.navy, fontSize: 14 } }, "Ranking de Desempeño"),
+            React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                React.createElement("thead", null,
+                    React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
+                        ["Operador", "Turno", "Atendidas", "Prod (At/Hr)", "Preparado (Voz)", "Calidad"].map(h =>
+                            React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
+                        )
+                    )
+                ),
+                React.createElement("tbody", null,
+                    loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando métricas...")) :
+                    combined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período. Cargá el reporte de OPERADORES.")) :
+                    combined.map((p, i) => (
+                        React.createElement("tr", { key: p.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa", transition: "all .1s" } },
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement("div", { style: { fontWeight: 800, color: C.navy, fontSize: 13 } }, p.name)
+                            ),
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement(Badge, { label: p.turno, color: p.turno === "07-19" ? C.blue : p.turno === "19-07" ? C.navy : C.gray, bg: p.turno === "07-19" ? C.light : p.turno === "19-07" ? "rgba(30,58,138,0.1)" : "#f1f5f9" })
+                            ),
+                            React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                    React.createElement("span", { style: { fontWeight: 900, fontSize: 14, color: C.blue, width: 35 } }, p.coefProd),
+                                    React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue }) // Escalado a max ~20
+                                )
+                            ),
+                            React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 600 } }, fmtSeconds(p.totalPreparado)),
+                            React.createElement("td", { style: { padding: "14px 20px" } },
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                    React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
+                                    React.createElement(MiniBar, { pct: parseFloat(p.scoreQuality), color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange })
+                                )
+                            )
+                        )
+                    ))
+                )
+            )
+        )
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
@@ -2713,8 +3068,6 @@ function App() {
 
         // MAIN CONTENT
         React.createElement("div", { style: { maxWidth: 1140, margin: "0 auto", padding: "28px 20px" } },
-            err && React.createElement("div", { style: { background: C.redBg, border: "1px solid #fca5a5", borderRadius: 10, padding: "12px 16px", color: "#7f1d1d", fontSize: 13, marginBottom: 16, fontWeight: 600 } }, `⚠ ${err}`),
-
             view === "upload" && React.createElement("div", null,
                 React.createElement("div", { style: { textAlign: "center", marginBottom: 32, paddingTop: 20 } },
                     React.createElement("div", { style: { fontSize: 32, marginBottom: 10 } }, "🚨"),
@@ -2751,12 +3104,48 @@ function App() {
                             React.createElement("div", { style: { fontSize: 12, color: C.gray } }, desc)
                         )
                     )
+                ),
+
+                // ── SECCIÓN DESEMPEÑO (NUEVA) ──────────────────────────────────
+                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}` } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20 } },
+                        React.createElement("div", { style: { width: 32, height: 32, borderRadius: 8, background: C.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 } }, "👥"),
+                        React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Desempeño de Empleados")
+                    ),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 } },
+                        React.createElement(Card, {
+                            onClick: () => setView("operadores_analisis"),
+                            style: { cursor: "pointer", transition: "all .2s", padding: "24px", display: "flex", gap: 18, alignItems: "center" },
+                            onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                            onMouseOut: e => e.currentTarget.style.transform = "none"
+                        },
+                            React.createElement("div", { style: { fontSize: 32 } }, "📈"),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: C.navy } }, "Análisis de Métricas"),
+                                React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 4 } }, "KPIs de calidad, productividad y velocidad por operador")
+                            )
+                        ),
+                        React.createElement(Card, {
+                            onClick: () => setView("personal"),
+                            style: { cursor: "pointer", transition: "all .2s", padding: "24px", display: "flex", gap: 18, alignItems: "center" },
+                            onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                            onMouseOut: e => e.currentTarget.style.transform = "none"
+                        },
+                            React.createElement("div", { style: { fontSize: 32 } }, "⚙️"),
+                            React.createElement("div", null,
+                                React.createElement("div", { style: { fontWeight: 800, fontSize: 16, color: C.navy } }, "Gestión de Personal"),
+                                React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 4 } }, "Administrar nómina de agentes y asignación de turnos")
+                            )
+                        )
+                    )
                 )
             ),
 
             view === "resumen" && React.createElement(ViewResumen, { data: files }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
+            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload") }),
+            view === "personal" && React.createElement(ViewGestionPersonal, { user, onBack: () => setView("upload") }),
             view === "despacho" && React.createElement(ViewDespacho, { data: files }),
             view === "mensual" && React.createElement(ViewMensual, { user }),
             view === "historial" && React.createElement(ViewHistorial, { user }),
