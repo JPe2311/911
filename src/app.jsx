@@ -62,6 +62,15 @@ function parseTimeToSeconds(str) {
     return total;
 }
 
+function filterDetailsByTurno(detalles, turno) {
+    if (!detalles || !Array.isArray(detalles)) return [];
+    const valid = detalles.filter(d => d !== null && d !== undefined);
+    if (!turno || turno === "all") return valid;
+    if (turno === "dia") return valid.filter(r => r.hour >= 7 && r.hour < 19);
+    if (turno === "noche") return valid.filter(r => r.hour >= 19 || r.hour < 7);
+    return valid;
+}
+
 function fmtSeconds(sec) {
     if (!sec || sec === 0) return `0\"`;
     if (sec < 60) return `${sec}\"`;
@@ -1568,14 +1577,9 @@ function ViewMensual({ user }) {
     };
 
     // ──── Filter helpers ─────────────────────────────────────────────────────
-    const filterDetailsByTurno = (detalles, turno) => {
-        if (!detalles || turno === "all") return detalles;
-        if (turno === "dia") return detalles.filter(r => r.hour >= 7 && r.hour < 19);
-        if (turno === "noche") return detalles.filter(r => r.hour >= 19 || r.hour < 7);
-        return detalles;
-    };
+    // (Moved to global scope)
 
-    const availableYears = useMemo(() => [...new Set(history.map(h => h.meta.year))].sort((a, b) => b - a), [history]);
+    const availableYears = useMemo(() => [...new Set(history.map(h => h && h.meta ? h.meta.year : null))].filter(Boolean).sort((a, b) => b - a), [history]);
 
     const filteredHistory = useMemo(() => {
         let res = history;
@@ -1596,9 +1600,18 @@ function ViewMensual({ user }) {
             : filteredHistory;
         let tO = 0, tC = 0, tA = 0, tEC = 0, tAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
         target.forEach(h => {
+            if (!h) return;
             const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            if (!rows) { tO += h.resumen.totalOfrecidas; tC += h.resumen.totalContestadas; tA += h.resumen.totalAbandonadas; return; }
+            if (!rows || !rows.length) { 
+                if (h.resumen) {
+                    tO += h.resumen.totalOfrecidas || 0; 
+                    tC += h.resumen.totalContestadas || 0; 
+                    tA += h.resumen.totalAbandonadas || 0; 
+                }
+                return; 
+            }
             rows.forEach(r => {
+                if (!r) return;
                 tO += r.o || 0; tC += r.c || 0; tA += r.ab || 0;
                 tEC += r.ec || 0; tAV += r.av || 0;
                 if (r.manejo) { mSum += r.manejo; mCnt++; }
@@ -1623,17 +1636,19 @@ function ViewMensual({ user }) {
         const sorted = [...target].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
 
         const monthStats = sorted.map(h => {
+            if (!h) return null;
             const rows = filterDetailsByTurno(h.detalles, filterTurno);
             let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
             if (rows && rows.length) {
                 rows.forEach(r => {
+                    if (!r) return;
                     rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
                     rEC += r.ec || 0; rAV += r.av || 0;
                     if (r.manejo) { mSum += r.manejo; mCnt++; }
                     if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
                 });
-            } else {
-                rO = h.resumen.totalOfrecidas; rC = h.resumen.totalContestadas; rA = h.resumen.totalAbandonadas;
+            } else if (h.resumen) {
+                rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
             }
             const pctAb = rO ? (rA / rO * 100) : 0;
             const pctAt = rO ? (rC / rO * 100) : 0;
@@ -2112,8 +2127,9 @@ function ViewMensual({ user }) {
                 (() => {
                     // Compute max ofrecidas across visible months for relative bar sizing
                     const allRO = filteredHistory.map(h => {
+                        if (!h) return 0;
                         const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                        return rows && rows.length ? rows.reduce((s, r) => s + (r.o || 0), 0) : h.resumen.totalOfrecidas;
+                        return rows && rows.length ? rows.reduce((s, r) => s + (r?.o || 0), 0) : (h.resumen?.totalOfrecidas || 0);
                     });
                     const maxRO = Math.max(...allRO, 1);
 
@@ -2121,16 +2137,18 @@ function ViewMensual({ user }) {
                         const rows = filterDetailsByTurno(h.detalles, filterTurno);
                         let rO, rC, rA, rEC, rAV, rM;
                         if (rows && rows.length) {
-                            rO = rows.reduce((s, r) => s + (r.o || 0), 0);
-                            rC = rows.reduce((s, r) => s + (r.c || 0), 0);
-                            rA = rows.reduce((s, r) => s + (r.ab || 0), 0);
-                            rEC = rows.reduce((s, r) => s + (r.ec || 0), 0);
-                            rAV = rows.reduce((s, r) => s + (r.av || 0), 0);
-                            const mRows = rows.filter(r => r.manejo);
+                            rO = rows.reduce((s, r) => s + (r?.o || 0), 0);
+                            rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
+                            rA = rows.reduce((s, r) => s + (r?.ab || 0), 0);
+                            rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
+                            rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
+                            const mRows = rows.filter(r => r && r.manejo);
                             rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
-                        } else {
-                            rO = h.resumen.totalOfrecidas; rC = h.resumen.totalContestadas; rA = h.resumen.totalAbandonadas;
+                        } else if (h.resumen) {
+                            rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
                             rEC = 0; rAV = 0; rM = 0;
+                        } else {
+                            rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
                         }
                         const pctAt = rO ? (rC / rO * 100) : 0;
                         const pctAb = rO ? (rA / rO * 100) : 0;
@@ -2282,16 +2300,24 @@ function ViewMensual({ user }) {
                     ),
                     React.createElement("tbody", null,
                         filteredHistory.map((h, i) => {
+                            if (!h) return null;
                             const rows = filterDetailsByTurno(h.detalles, filterTurno);
                             let rO, rC, rA, rEC, rAV, rM;
                             if (rows && rows.length) {
-                                rO = rows.reduce((s, r) => s + (r.o || 0), 0); rC = rows.reduce((s, r) => s + (r.c || 0), 0);
-                                rA = rows.reduce((s, r) => s + (r.ab || 0), 0); rEC = rows.reduce((s, r) => s + (r.ec || 0), 0);
-                                rAV = rows.reduce((s, r) => s + (r.av || 0), 0);
-                                const mRows = rows.filter(r => r.manejo);
+                                rO = rows.reduce((s, r) => s + (r?.o || 0), 0); 
+                                rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
+                                rA = rows.reduce((s, r) => s + (r?.ab || 0), 0); 
+                                rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
+                                rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
+                                const mRows = rows.filter(r => r && r.manejo);
                                 rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
+                            } else if (h.resumen) {
+                                rO = h.resumen.totalOfrecidas || 0; 
+                                rC = h.resumen.totalContestadas || 0; 
+                                rA = h.resumen.totalAbandonadas || 0; 
+                                rEC = 0; rAV = 0; rM = 0;
                             } else {
-                                rO = h.resumen.totalOfrecidas; rC = h.resumen.totalContestadas; rA = h.resumen.totalAbandonadas; rEC = 0; rAV = 0; rM = 0;
+                                rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
                             }
                             const pctAt = rO ? (rC / rO * 100).toFixed(1) : "0"; const pctAb = rO ? (rA / rO * 100).toFixed(1) : "0";
                             return React.createElement("tr", { key: i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
@@ -2320,10 +2346,7 @@ function MensualHeatmap({ report, turnoFilter }) {
     const [metric, setMetric] = useState("total");
 
     const grid = useMemo(() => {
-        let data = report.detalles || [];
-        // Apply turno filter
-        if (turnoFilter === "dia") data = data.filter(r => r.hour >= 7 && r.hour < 19);
-        else if (turnoFilter === "noche") data = data.filter(r => r.hour >= 19 || r.hour < 7);
+        const data = filterDetailsByTurno(report.detalles, turnoFilter);
 
         const matrix = {};
         let max = 0;
