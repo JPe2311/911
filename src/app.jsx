@@ -670,6 +670,57 @@ async function getOperatorHistory(normName, year) {
     return snap.docs.map(d => d.data());
 }
 
+async function getUniqueOperators() {
+    const db = getDB();
+    if (!db) return [];
+    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDocs(collection(db, "operator_performance"));
+    const map = new Map();
+    snap.docs.forEach(d => {
+        const data = d.data();
+        if (!map.has(data.normName)) {
+            map.set(data.normName, { normName: data.normName, name: data.name });
+        }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getGroupAverages(year) {
+    const db = getDB();
+    if (!db) return {};
+    const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const q = query(collection(db, "operator_performance"), where("year", "==", year));
+    const snap = await getDocs(q);
+    const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
+    
+    snap.docs.forEach(d => {
+        const p = d.data();
+        const m = p.month;
+        if (!months[m]) months[m] = { c: 0, o: 0, ab: 0, prod: 0, avisando: 0, manejo: 0, count: 0 };
+        months[m].c += p.c;
+        months[m].o += p.o;
+        months[m].ab += p.ab;
+        months[m].prod += p.pctProd;
+        months[m].avisando += p.avgAvisando;
+        months[m].manejo += p.avgManejo;
+        months[m].count++;
+    });
+
+    const result = {};
+    Object.keys(months).forEach(m => {
+        const d = months[m];
+        result[m] = {
+            avgC: Math.round(d.c / d.count),
+            avgO: Math.round(d.o / d.count),
+            avgAb: Math.round(d.ab / d.count),
+            avgProd: (d.prod / d.count).toFixed(1),
+            avgAvisando: Math.round(d.avisando / d.count),
+            avgManejo: Math.round(d.manejo / d.count)
+        };
+    });
+    return result;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  AUTH HELPERS
 // ════════════════════════════════════════════════════════════════════════════
@@ -2667,7 +2718,7 @@ function MensualHeatmap({ report, turnoFilter }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: ANÁLISIS DE OPERADORES (Métricas Mensuales)
 // ════════════════════════════════════════════════════════════════════════════
-function ViewAnalisisOperadores({ user, onBack }) {
+function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const [perf, setPerf] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState(null); // normName of expanded agent
@@ -2786,7 +2837,10 @@ function ViewAnalisisOperadores({ user, onBack }) {
                                 React.createElement("td", { style: { padding: "14px 20px" } },
                                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                                         React.createElement("span", { style: { color: C.blue, fontSize: 10 } }, expanded === p.normName ? "▼" : "▶"),
-                                        React.createElement("div", { style: { fontWeight: 800, color: C.navy, fontSize: 13 } }, p.name)
+                                        React.createElement("div", { 
+                                            onClick: (e) => { e.stopPropagation(); navigateToProfile(p.normName); },
+                                            style: { fontWeight: 800, color: C.blue, fontSize: 13, textDecoration: "underline" } 
+                                        }, p.name)
                                     )
                                 ),
                                 React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
@@ -2904,6 +2958,169 @@ function ViewAnalisisOperadores({ user, onBack }) {
     );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW: PERFIL DE OPERADOR (Individual Dashboard)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
+    const [agents, setAgents] = useState([]);
+    const [selectedAgent, setSelectedAgent] = useState(initialAgent || "");
+    const [year, setYear] = useState(new Date().getFullYear().toString());
+    const [history, setHistory] = useState([]);
+    const [groupAvg, setGroupAvg] = useState({});
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => { getUniqueOperators().then(setAgents); }, []);
+
+    useEffect(() => {
+        if (!selectedAgent) return;
+        setLoading(true);
+        Promise.all([
+            getOperatorHistory(selectedAgent, year),
+            getGroupAverages(year)
+        ]).then(([h, g]) => {
+            setHistory(h);
+            setGroupAvg(g);
+            setLoading(false);
+        });
+    }, [selectedAgent, year]);
+
+    const stats = useMemo(() => {
+        if (!history.length) return null;
+        const totalC = history.reduce((s, h) => s + h.c, 0);
+        const avgEff = (history.reduce((s, h) => s + h.pctProd, 0) / history.length).toFixed(1);
+        const avgProd = (history.reduce((s, h) => {
+            const hrs = (h.totalConectado / 3600) || 1;
+            return s + (h.c / hrs);
+        }, 0) / history.length).toFixed(1);
+
+        return { totalC, avgEff, avgProd };
+    }, [history]);
+
+    const chartData = useMemo(() => {
+        if (!history.length) return null;
+        const labels = history.map(h => MONTH_NAMES[h.month] || h.month);
+        
+        return {
+            volume: {
+                labels,
+                datasets: [
+                    { label: "Contestadas (Op)", data: history.map(h => h.c), backgroundColor: C.blue, borderRadius: 6 },
+                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgC || 0), backgroundColor: "rgba(148,163,184,0.3)", borderRadius: 6 }
+                ]
+            },
+            efficiency: {
+                labels,
+                datasets: [
+                    { label: "% Voz Prep (Op)", data: history.map(h => h.pctProd), borderColor: C.green, backgroundColor: "rgba(22,163,74,0.1)", fill: true, tension: 0.3 },
+                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgProd || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
+                ]
+            },
+            handling: {
+                labels,
+                datasets: [
+                    { label: "T. Manejo (Op)", data: history.map(h => h.avgManejo), borderColor: "#7c3aed", tension: 0.3 },
+                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgManejo || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
+                ]
+            }
+        };
+    }, [history, groupAvg]);
+
+    return React.createElement("div", { className: "animate-fade" },
+        // Header
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Perfil de Operador"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Análisis de trayectoria individual y comparativa")
+                )
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("select", {
+                    value: selectedAgent,
+                    onChange: e => setSelectedAgent(e.target.value),
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, minWidth: 220, color: C.navy }
+                },
+                    React.createElement("option", { value: "" }, "Seleccionar Operador..."),
+                    agents.map(a => React.createElement("option", { key: a.normName, value: a.normName }, a.name))
+                ),
+                React.createElement("select", {
+                    value: year,
+                    onChange: e => setYear(e.target.value),
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700 }
+                },
+                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+                )
+            )
+        ),
+
+        !selectedAgent && React.createElement(Card, { style: { textAlign: "center", padding: 60, color: C.gray } }, "Seleccioná un operador para ver sus dashboards."),
+        
+        selectedAgent && loading && React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando trayectoria…"),
+
+        selectedAgent && !loading && history.length === 0 && React.createElement(Card, { style: { textAlign: "center", padding: 60, color: C.gray } }, "No hay datos registrados para este operador en el año seleccionado."),
+
+        selectedAgent && !loading && stats && React.createElement("div", { className: "animate-fade" },
+            // KPIs
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 } },
+                React.createElement(StatKpi, { label: "Total Atendidas (Año)", value: stats.totalC.toLocaleString(), accent: C.blue }),
+                React.createElement(StatKpi, { label: "Eficiencia Avg", value: `${stats.avgEff}%`, sub: "% Voz Preparada", accent: C.green }),
+                React.createElement(StatKpi, { label: "Productividad Avg", value: stats.avgProd, sub: "Contestadas / Hora", accent: C.mid })
+            ),
+
+            // Charts Dashboard
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
+                React.createElement(Card, null,
+                    React.createElement("div", { style: { fontWeight: 800, color: C.navy, marginBottom: 16, fontSize: 14 } }, "📈 Volumen: Contestadas vs Promedio Grupo"),
+                    React.createElement("div", { style: { height: 260 } }, React.createElement(ChartBar, { id: "vol-comp", data: chartData.volume }))
+                ),
+                React.createElement(Card, null,
+                    React.createElement("div", { style: { fontWeight: 800, color: C.navy, marginBottom: 16, fontSize: 14 } }, "🎯 Eficiencia: % Voz Preparada vs Grupo"),
+                    React.createElement("div", { style: { height: 260 } }, React.createElement(ChartLine, { id: "eff-comp", data: chartData.efficiency }))
+                )
+            ),
+
+            React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, color: C.navy, marginBottom: 16, fontSize: 14 } }, "⏱ Tiempos: Media Manejo vs Grupo"),
+                React.createElement("div", { style: { height: 260 } }, React.createElement(ChartLine, { id: "time-comp", data: chartData.handling }))
+            ),
+
+            // Data Table Comparison
+            React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginTop: 24 } },
+                React.createElement("div", { style: { padding: "16px 20px", borderBottom: `1px solid ${C.border}`, background: "#f8fafc", fontWeight: 800, color: C.navy, fontSize: 13 } }, "Historial Mensual Detallado"),
+                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                    React.createElement("thead", null,
+                        React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
+                            ["Mes", "Contestadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h => 
+                                React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
+                            )
+                        )
+                    ),
+                    React.createElement("tbody", null,
+                        history.map((h, i) => {
+                            const hrs = (h.totalConectado / 3600) || 1;
+                            const prod = (h.c / hrs).toFixed(1);
+                            return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
+                                React.createElement("td", { style: { padding: "12px 20px", fontWeight: 800, color: C.navy } }, MONTH_NAMES[h.month] || h.month),
+                                React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700 } }, h.c),
+                                React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.blue } }, prod),
+                                React.createElement("td", { style: { padding: "12px 20px", color: C.green, fontWeight: 700 } }, `${h.pctProd}%`),
+                                React.createElement("td", { style: { padding: "12px 20px", color: C.orange, fontWeight: 700 } }, `${h.pctNoProd}%`),
+                                React.createElement("td", { style: { padding: "12px 20px" } },
+                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                        React.createElement("span", { style: { fontWeight: 800, color: h.pctProd > 80 ? C.green : C.orange } }, `${h.pctProd}%`),
+                                        React.createElement(MiniBar, { pct: h.pctProd, color: h.pctProd > 80 ? C.green : C.orange })
+                                    )
+                                )
+                            );
+                        })
+                    )
+                )
+            )
+        )
+    );
+}
+
 function RowStat({ label, value, color }) {
     return React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#fff", borderRadius: 8, border: `1px solid ${C.border}` } },
         React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: C.gray } }, label),
@@ -2920,6 +3137,7 @@ function App() {
     const [files, setFiles] = useState({ agentes: null, abandonadas: null, despachoInicio: null, despachoDerivacion: null, despachoCreacion: null });
     const [loaded, setLoaded] = useState([]);
     const [view, setView] = useState("upload");
+    const [profileAgent, setProfileAgent] = useState(null);
     const [err, setErr] = useState(null);
     const lastSavedTurno = useRef(null);
 
@@ -3048,6 +3266,8 @@ function App() {
         { id: "horas", label: "📞 Por Hora", avail: !!files.abandonadas },
         { id: "operadores", label: "👤 Operadores", avail: !!files.agentes },
         { id: "despacho", label: "🚓 Despacho", avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
+        { id: "operadores_analisis", label: "🏆 Ranking", avail: true },
+        { id: "operadores_perfil", label: "👤 Perfil", avail: true },
         { id: "mensual", label: "📈 Mensual", avail: true },
         { id: "historial", label: "📋 Historial", avail: true },
     ];
@@ -3133,17 +3353,29 @@ function App() {
                 ),
 
                 // ── SECCIÓN DESEMPEÑO (NUEVA) ──────────────────────────────────
-                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "flex", justifyContent: "center" } },
+                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "flex", justifyContent: "center", gap: 24 } },
                     React.createElement(Card, {
                         onClick: () => setView("operadores_analisis"),
-                        style: { cursor: "pointer", transition: "all .2s", padding: "24px 40px", display: "flex", gap: 18, alignItems: "center", maxWidth: 500 },
+                        style: { cursor: "pointer", transition: "all .2s", padding: "24px 32px", display: "flex", gap: 18, alignItems: "center", minWidth: 400 },
                         onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
                         onMouseOut: e => e.currentTarget.style.transform = "none"
                     },
                         React.createElement("div", { style: { fontSize: 40 } }, "📊"),
                         React.createElement("div", null,
-                            React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Análisis de Desempeño"),
-                            React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4 } }, "KPIs de calidad, productividad y velocidad por operador")
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Ranking Detallado"),
+                            React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4 } }, "Ranking de calidad y productividad mensual")
+                        )
+                    ),
+                    React.createElement(Card, {
+                        onClick: () => setView("operadores_perfil"),
+                        style: { cursor: "pointer", transition: "all .2s", padding: "24px 32px", display: "flex", gap: 18, alignItems: "center", minWidth: 400 },
+                        onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                        onMouseOut: e => e.currentTarget.style.transform = "none"
+                    },
+                        React.createElement("div", { style: { fontSize: 40 } }, "👤"),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Perfil Individual"),
+                            React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4 } }, "Historial y dashboards comparativos por persona")
                         )
                     )
                 )
@@ -3152,7 +3384,8 @@ function App() {
             view === "resumen" && React.createElement(ViewResumen, { data: files }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
-            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload") }),
+            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
+            view === "operadores_perfil" && React.createElement(ViewPerfilOperador, { user, initialAgent: profileAgent, onBack: () => { setProfileAgent(null); setView("upload"); } }),
             view === "despacho" && React.createElement(ViewDespacho, { data: files }),
             view === "mensual" && React.createElement(ViewMensual, { user }),
             view === "historial" && React.createElement(ViewHistorial, { user }),
