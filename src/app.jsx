@@ -34,6 +34,9 @@ const C = {
     card: "#ffffff",
 };
 
+const MONTH_NAMES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+
 // ════════════════════════════════════════════════════════════════════════════
 //  PARSERS
 // ════════════════════════════════════════════════════════════════════════════
@@ -1599,7 +1602,6 @@ function ViewMensual({ user }) {
     const [filterTurno, setFilterTurno] = useState("all"); // "all" | "dia" | "noche"
     const [selectedMonths, setSelectedMonths] = useState([]);
 
-    const MONTH_NAMES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
     useEffect(() => {
         if (user === undefined) return;
