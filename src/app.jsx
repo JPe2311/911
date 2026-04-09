@@ -1808,9 +1808,9 @@ function ViewMensual({ user }) {
         return {
             labels,
             datasets: [
-                { label: "Prom. Ofrecidas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].o / byDay[d].count) : 0), backgroundColor: "rgba(46,95,163,0.75)", borderRadius: 5 },
-                { label: "Prom. Contestadas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].c / byDay[d].count) : 0), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 5 },
-                { label: "Prom. Abandonadas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].ab / byDay[d].count) : 0), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 5 }
+                { label: "Prom. Ofrecidas", data: order.map(d => byDay[d].count ? Math.round(byDay[d].o / byDay[d].count) : 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.08)", fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: C.mid, borderWidth: 2.5 },
+                { label: "Prom. Contestadas", data: order.map(d => byDay[d].count ? Math.round(byDay[d].c / byDay[d].count) : 0), borderColor: C.green, backgroundColor: "rgba(22,163,74,0.06)", fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: C.green, borderWidth: 2.5 },
+                { label: "Prom. Abandonadas", data: order.map(d => byDay[d].count ? Math.round(byDay[d].ab / byDay[d].count) : 0), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.06)", fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: C.red, borderWidth: 2.5 }
             ]
         };
     }, [filteredHistory, selectedMonths, filterTurno, history]);
@@ -2335,7 +2335,7 @@ function ViewMensual({ user }) {
         // ── WEEKDAY DISTRIBUTION ──────────────────────────────────────────────
         weekDayChart && React.createElement(Card, { style: { marginBottom: 20 } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 16 } }, "📅 Distribución por Día de la Semana"),
-            React.createElement("div", { style: { height: 280 } }, React.createElement(ChartBar, { id: "chart-weekday-dist", data: weekDayChart, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10, weight: "bold" } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
+            React.createElement("div", { style: { height: 280 } }, React.createElement(ChartLine, { id: "chart-weekday-dist", data: weekDayChart, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10, weight: "bold" } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
         ),
 
         // ── HEATMAP ────────────────────────────────────────────────────────────
