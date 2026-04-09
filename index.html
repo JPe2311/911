@@ -42,11 +42,19 @@
     ::-webkit-scrollbar-track { background: #f1f5f9; }
     ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 99px; }
     canvas { max-width: 100%; }
+    .print-only { display: none !important; }
     @media print {
+      .print-only { display: block !important; }
+      .print-flex { display: flex !important; }
       .no-print { display: none !important; }
       body { background: white; }
       .card { break-inside: avoid; }
     }
+    .animate-fade { animation: fadeIn 0.3s ease-out; }
+    .animate-slide-down { animation: slideDown 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    .hover-row:hover { background-color: #f1f5f9 !important; }
   </style>
 </head>
 <body>
