@@ -1702,11 +1702,11 @@ function ViewMensual({ user }) {
         if (data.length === 0) return null;
         const sorted = [...data].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
         return {
-            labels: sorted.map(s => s.meta.label),
+            labels: sorted.map(s => s.meta?.label || "—"),
             datasets: [
-                { label: "Ofrecidas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows ? rows.reduce((sum, r) => sum + (r.o || 0), 0) : s.resumen.totalOfrecidas; }), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
-                { label: "Contestadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows ? rows.reduce((sum, r) => sum + (r.c || 0), 0) : s.resumen.totalContestadas; }), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
-                { label: "Abandonadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows ? rows.reduce((sum, r) => sum + (r.ab || 0), 0) : s.resumen.totalAbandonadas; }), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
+                { label: "Ofrecidas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.o || 0), 0) : (s.resumen?.totalOfrecidas || 0); }), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
+                { label: "Contestadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.c || 0), 0) : (s.resumen?.totalContestadas || 0); }), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
+                { label: "Abandonadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.ab || 0), 0) : (s.resumen?.totalAbandonadas || 0); }), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
             ]
         };
     }, [filteredHistory, selectedMonths, filterTurno, history]);
@@ -1720,6 +1720,7 @@ function ViewMensual({ user }) {
         const rows = filterDetailsByTurno(single.detalles, filterTurno);
         const byDay = {};
         rows.forEach(r => {
+            if (!r || r.d === undefined) return;
             if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
             byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
         });
@@ -1744,10 +1745,11 @@ function ViewMensual({ user }) {
         let totalDays = 0;
         target.forEach(h => {
             const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            if (!rows) return;
-            const daysInMonth = new Set(rows.map(r => r.d)).size;
+            if (!rows || !rows.length) return;
+            const daysInMonth = new Set(rows.filter(r => r && r.d !== undefined).map(r => r.d)).size;
             totalDays += daysInMonth;
             rows.forEach(r => {
+                if (!r || r.hour === undefined) return;
                 if (!byHour[r.hour]) byHour[r.hour] = { o: 0, c: 0, ab: 0 };
                 byHour[r.hour].o += r.o || 0;
                 byHour[r.hour].c += r.c || 0;
@@ -1774,10 +1776,14 @@ function ViewMensual({ user }) {
         if (!target.length) return null;
         let diaO = 0, diaC = 0, diaA = 0, nocO = 0, nocC = 0, nocA = 0;
         target.forEach(h => {
-            if (!h.detalles) return;
+            if (!h.detalles || !Array.isArray(h.detalles)) return;
             h.detalles.forEach(r => {
-                if (r.hour >= 7 && r.hour < 19) { diaO += r.o || 0; diaC += r.c || 0; diaA += r.ab || 0; }
-                else { nocO += r.o || 0; nocC += r.c || 0; nocA += r.ab || 0; }
+                if (!r || r.hour === undefined) return;
+                if (r.hour >= 7 && r.hour < 19) { 
+                    diaO += r.o || 0; diaC += r.c || 0; diaA += r.ab || 0; 
+                } else { 
+                    nocO += r.o || 0; nocC += r.c || 0; nocA += r.ab || 0; 
+                }
             });
         });
         if (!diaO && !nocO) return null;
