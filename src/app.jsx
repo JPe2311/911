@@ -1845,6 +1845,200 @@ function ViewMensual({ user }) {
       React.createElement(StatKpi, { label: "Tiempo Manejo Prom.", value: kpis.avgManejo ? fmtSeconds(kpis.avgManejo) : "—", accent: "#7c3aed" })
     ),
 
+    // ── MONTHLY COMPARISON KPI TABLE ──────────────────────────────────────
+    monthlyCompData && monthlyCompData.length >= 1 && React.createElement(Card, { style: { marginBottom: 24, padding: "24px 28px" } },
+      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontWeight: 900, fontSize: 17, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
+            "📐 Comparativa Numérica Mensual"
+          ),
+          React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 3 } },
+            monthlyCompData.length > 1
+              ? "Variación mes a mes — flechas verdes indican mejora, rojas indican deterioro"
+              : "Métricas del mes seleccionado"
+          )
+        ),
+        monthlyCompData.length > 1 && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 10 } },
+            React.createElement("span", { style: { color: C.green, fontWeight: 900 } }, "▲"),
+            React.createElement("span", { style: { color: C.gray } }, "Mejora")
+          ),
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 10 } },
+            React.createElement("span", { style: { color: C.red, fontWeight: 900 } }, "▼"),
+            React.createElement("span", { style: { color: C.gray } }, "Deterioro")
+          )
+        )
+      ),
+
+      // ── Top-level "latest month vs previous" highlight cards ──
+      monthlyCompData.length >= 2 && (() => {
+        const latest = monthlyCompData[monthlyCompData.length - 1];
+        const prev = monthlyCompData[monthlyCompData.length - 2];
+        const d = latest.deltas;
+        if (!d) return null;
+
+        const DeltaKpi = ({ label, value, delta, unit, invertColor, icon }) => {
+          // invertColor: for metrics where "up = bad" (e.g., abandonadas, % abandono)
+          const isPositive = invertColor ? delta < 0 : delta > 0;
+          const isNeutral = Math.abs(delta) < 0.5;
+          const arrow = isNeutral ? "→" : (delta > 0 ? "▲" : "▼");
+          const deltaColor = isNeutral ? C.gray : (isPositive ? C.green : C.red);
+          const deltaBg = isNeutral ? "#f1f5f9" : (isPositive ? C.greenBg : C.redBg);
+
+          return React.createElement("div", { style: {
+            background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12,
+            padding: "16px 18px", flex: 1, minWidth: 160, position: "relative", overflow: "hidden"
+          }},
+            React.createElement("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: 3, background: deltaColor } }),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, marginTop: 2 } },
+              React.createElement("span", { style: { fontSize: 16 } }, icon),
+              React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.8 } }, label)
+            ),
+            React.createElement("div", { style: { fontSize: 28, fontWeight: 900, color: C.navy, lineHeight: 1, marginBottom: 8 } }, value),
+            React.createElement("div", { style: { display: "inline-flex", alignItems: "center", gap: 4, background: deltaBg, borderRadius: 6, padding: "4px 10px" } },
+              React.createElement("span", { style: { fontSize: 11, fontWeight: 900, color: deltaColor } }, arrow),
+              React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: deltaColor } },
+                `${Math.abs(delta).toFixed(1)}${unit || "%"} vs ${prev.label}`
+              )
+            )
+          );
+        };
+
+        return React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 } },
+          React.createElement(DeltaKpi, {
+            label: "Total Llamadas", icon: "📞",
+            value: latest.ofrecidas.toLocaleString("es-AR"),
+            delta: d.ofrecidas, invertColor: false
+          }),
+          React.createElement(DeltaKpi, {
+            label: "% Atención", icon: "✅",
+            value: `${latest.pctAt.toFixed(1)}%`,
+            delta: d.pctAt, unit: " pp", invertColor: false
+          }),
+          React.createElement(DeltaKpi, {
+            label: "% Abandono", icon: "🔴",
+            value: `${latest.pctAb.toFixed(1)}%`,
+            delta: d.pctAb, unit: " pp", invertColor: true
+          }),
+          React.createElement(DeltaKpi, {
+            label: "Abandonadas", icon: "📉",
+            value: latest.abandonadas.toLocaleString("es-AR"),
+            delta: d.abandonadas, invertColor: true
+          })
+        );
+      })(),
+
+      // ── Full comparison table ──
+      React.createElement("div", { style: { overflowX: "auto" } },
+        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+          React.createElement("thead", null,
+            React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
+              ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Manejo"].map(h =>
+                React.createElement("th", { key: h + Math.random(), style: {
+                  padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
+                  fontSize: h === "Mes" ? 11 : 10, whiteSpace: "nowrap",
+                  borderRight: ["Δ", "Δ pp"].includes(h) ? "2px solid rgba(255,255,255,0.1)" : "none"
+                }}, h)
+              )
+            )
+          ),
+          React.createElement("tbody", null,
+            monthlyCompData.map((m, i) => {
+              const d = m.deltas;
+              const DeltaCell = ({ val, invert, unit }) => {
+                if (!d || val === undefined || val === null) return React.createElement("td", { style: { padding: "8px 6px", textAlign: "center", color: "#cbd5e1", fontSize: 10 } }, "—");
+                const isNeutral = Math.abs(val) < 0.5;
+                const isGood = invert ? val < 0 : val > 0;
+                const color = isNeutral ? C.gray : (isGood ? C.green : C.red);
+                const bg = isNeutral ? "transparent" : (isGood ? "rgba(22,163,74,0.08)" : "rgba(220,38,38,0.08)");
+                const arrow = isNeutral ? "→" : (val > 0 ? "▲" : "▼");
+                return React.createElement("td", { style: { padding: "6px 6px", textAlign: "center", background: bg, borderRight: "2px solid #f1f5f9" } },
+                  React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 2 } },
+                    React.createElement("span", { style: { fontSize: 9, fontWeight: 900, color } }, arrow),
+                    React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color } }, `${Math.abs(val).toFixed(1)}${unit || "%"}`)
+                  )
+                );
+              };
+              return React.createElement("tr", { key: m.firestoreId, style: {
+                background: i % 2 === 0 ? "#f8fafc" : "#fff",
+                borderBottom: `1px solid ${C.border}`,
+                transition: "background .15s"
+              }},
+                React.createElement("td", { style: { padding: "10px 10px", fontWeight: 800, color: C.navy, whiteSpace: "nowrap", fontSize: 12 } }, m.label),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 700, color: C.mid, fontSize: 13 } }, m.ofrecidas.toLocaleString("es-AR")),
+                React.createElement(DeltaCell, { val: d?.ofrecidas, invert: false }),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 700, color: C.green, fontSize: 13 } }, m.contestadas.toLocaleString("es-AR")),
+                React.createElement(DeltaCell, { val: d?.contestadas, invert: false }),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 700, color: C.red, fontSize: 13 } }, m.abandonadas.toLocaleString("es-AR")),
+                React.createElement(DeltaCell, { val: d?.abandonadas, invert: true }),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center" } },
+                  React.createElement("span", { style: {
+                    background: m.pctAb > 25 ? C.redBg : m.pctAb > 15 ? C.orBg : C.greenBg,
+                    color: m.pctAb > 25 ? C.red : m.pctAb > 15 ? C.orange : C.green,
+                    borderRadius: 6, padding: "3px 8px", fontWeight: 800, fontSize: 12
+                  }}, `${m.pctAb.toFixed(1)}%`)
+                ),
+                React.createElement(DeltaCell, { val: d?.pctAb, invert: true, unit: "" }),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center" } },
+                  React.createElement("span", { style: {
+                    background: m.pctAt >= 85 ? C.greenBg : m.pctAt >= 70 ? C.ylBg : C.redBg,
+                    color: m.pctAt >= 85 ? C.green : m.pctAt >= 70 ? C.yellow : C.red,
+                    borderRadius: 6, padding: "3px 8px", fontWeight: 800, fontSize: 12
+                  }}, `${m.pctAt.toFixed(1)}%`)
+                ),
+                React.createElement(DeltaCell, { val: d?.pctAt, invert: false, unit: "" }),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 600, color: C.navy, fontSize: 12 } }, m.promDiario.toLocaleString("es-AR")),
+                React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontFamily: "monospace", fontWeight: 700, color: "#7c3aed", fontSize: 12 } }, m.avgManejo ? fmtSeconds(m.avgManejo) : "—")
+              );
+            })
+          ),
+          // Totals footer
+          monthlyCompData.length > 1 && React.createElement("tfoot", null,
+            React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
+              React.createElement("td", { style: { padding: "10px 10px", fontWeight: 800, fontSize: 12 } }, "TOTAL"),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 13 } }, kpis.tO.toLocaleString("es-AR")),
+              React.createElement("td", { style: { padding: "10px 8px" } }),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 13 } }, kpis.tC.toLocaleString("es-AR")),
+              React.createElement("td", { style: { padding: "10px 8px" } }),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 13 } }, kpis.tA.toLocaleString("es-AR")),
+              React.createElement("td", { style: { padding: "10px 8px" } }),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 12 } }, `${kpis.pctAb.toFixed(1)}%`),
+              React.createElement("td", { style: { padding: "10px 8px" } }),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 12 } }, `${kpis.pctAt.toFixed(1)}%`),
+              React.createElement("td", { style: { padding: "10px 8px" } }),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 12 } },
+                (() => { const avg = monthlyCompData.length ? Math.round(monthlyCompData.reduce((s,m) => s + m.promDiario, 0) / monthlyCompData.length) : 0; return avg.toLocaleString("es-AR"); })()
+              ),
+              React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontFamily: "monospace", fontSize: 12 } }, kpis.avgManejo ? fmtSeconds(kpis.avgManejo) : "—")
+            )
+          )
+        )
+      ),
+
+      // ── Promedio diario de abandonadas comparison (bar sparkline) ──
+      monthlyCompData.length >= 2 && React.createElement("div", { style: { marginTop: 20, paddingTop: 20, borderTop: `1px solid ${C.border}` } },
+        React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 14 } }, "📊 Promedio Diario de Abandonadas por Mes"),
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "flex-end", height: 120 } },
+          (() => {
+            const maxAbd = Math.max(...monthlyCompData.map(m => m.promAbandDiario), 1);
+            return monthlyCompData.map((m, i) => {
+              const pct = (m.promAbandDiario / maxAbd) * 100;
+              const barColor = m.pctAb > 25 ? C.red : m.pctAb > 15 ? C.orange : C.green;
+              return React.createElement("div", { key: m.firestoreId, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 } },
+                React.createElement("span", { style: { fontSize: 12, fontWeight: 900, color: barColor } }, m.promAbandDiario),
+                React.createElement("div", { style: {
+                  width: "100%", maxWidth: 60, height: `${Math.max(pct, 5)}%`,
+                  background: `linear-gradient(180deg, ${barColor}, ${barColor}88)`,
+                  borderRadius: "6px 6px 0 0", transition: "height .4s", minHeight: 6
+                }}),
+                React.createElement("span", { style: { fontSize: 9, fontWeight: 700, color: C.gray, textAlign: "center", whiteSpace: "nowrap" } }, m.label)
+              );
+            });
+          })()
+        )
+      )
+    ),
+
     // ── PER-MONTH KPI CARDS (general → particular) ────────────────────────
     filteredHistory.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
       React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 } },
