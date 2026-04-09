@@ -1862,7 +1862,7 @@ function ViewMensual({ user }) {
         React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff" } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
                 React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, "DCGyC — SAE 911"),
+                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, ""),
                     React.createElement("div", { style: { fontSize: 26, fontWeight: 900 } }, "Análisis Mensual"),
                     React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, `${filteredHistory.length} registros • ${turnoLabel}`)
                 ),
@@ -2035,7 +2035,7 @@ function ViewMensual({ user }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
-                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Total Manejo", "T. Promedio"].map(h =>
+                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
                                 React.createElement("th", {
                                     key: h + Math.random(), style: {
                                         padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
@@ -2099,13 +2099,7 @@ function ViewMensual({ user }) {
                                 React.createElement(DeltaCell, { val: d?.pctAt, invert: false, unit: "" }),
                                 React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 600, color: C.navy, fontSize: 12 } }, m.promDiario.toLocaleString("es-AR")),
                                 React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontFamily: "monospace", color: C.blue, fontSize: 11, fontWeight: 700 } },
-                                    (() => {
-                                        const totalSec = m.totalManejo;
-                                        const h = Math.floor(totalSec / 3600);
-                                        const min = Math.floor((totalSec % 3600) / 60);
-                                        const sec = totalSec % 60;
-                                        return `${h}h ${min}m`;
-                                    })()
+                                    m.avgAvisando ? fmtSeconds(m.avgAvisando) : "—"
                                 ),
                                 React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontFamily: "monospace", fontWeight: 700, color: "#7c3aed", fontSize: 12 } }, m.avgManejo ? fmtSeconds(m.avgManejo) : "—")
                             );
@@ -2129,12 +2123,7 @@ function ViewMensual({ user }) {
                                 (() => { const avg = monthlyCompData.length ? Math.round(monthlyCompData.reduce((s, m) => s + m.promDiario, 0) / monthlyCompData.length) : 0; return avg.toLocaleString("es-AR"); })()
                             ),
                             React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 11, color: "#fff" } },
-                                (() => {
-                                    const totalSec = kpis.totalManejo;
-                                    const h = Math.floor(totalSec / 3600);
-                                    const m = Math.floor((totalSec % 3600) / 60);
-                                    return `${h}h ${m}m`;
-                                })()
+                                fmtSeconds(kpis.avgAvisando)
                             ),
                             React.createElement("td", { style: { padding: "10px 8px", textAlign: "center", fontWeight: 800, fontSize: 11, color: "#fff" } },
                                 fmtSeconds(kpis.avgManejo)
