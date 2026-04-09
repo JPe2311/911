@@ -1768,6 +1768,53 @@ function ViewMensual({ user }) {
         };
     }, [filteredHistory, selectedMonths, filterTurno, history]);
 
+    // ──── Chart: Day of Week distribution ────────────────────────────────────
+    const weekDayChart = useMemo(() => {
+        const target = selectedMonths.length > 0
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            : filteredHistory;
+        if (!target.length) return null;
+
+        const byDay = { 0: { o: 0, c: 0, ab: 0, count: 0 }, 1: { o: 0, c: 0, ab: 0, count: 0 }, 2: { o: 0, c: 0, ab: 0, count: 0 }, 3: { o: 0, c: 0, ab: 0, count: 0 }, 4: { o: 0, c: 0, ab: 0, count: 0 }, 5: { o: 0, c: 0, ab: 0, count: 0 }, 6: { o: 0, c: 0, ab: 0, count: 0 } };
+        
+        target.forEach(h => {
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
+            if (!rows || !rows.length) return;
+            
+            const daysSeen = new Set();
+            rows.forEach(r => {
+                if (!r || r.d === undefined) return;
+                const dt = new Date(h.meta.year, h.meta.monthNum - 1, r.d);
+                const dow = dt.getDay(); 
+                byDay[dow].o += r.o || 0;
+                byDay[dow].c += r.c || 0;
+                byDay[dow].ab += r.ab || 0;
+                daysSeen.add(`${dow}-${r.d}`);
+            });
+            
+            const monthDows = {};
+            daysSeen.forEach(s => {
+                const dow = s.split("-")[0];
+                monthDows[dow] = (monthDows[dow] || 0) + 1;
+            });
+            Object.keys(monthDows).forEach(dow => {
+                byDay[dow].count += monthDows[dow];
+            });
+        });
+
+        const order = [1, 2, 3, 4, 5, 6, 0]; // Mon -> Sun
+        const labels = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+        return {
+            labels,
+            datasets: [
+                { label: "Prom. Ofrecidas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].o / byDay[d].count) : 0), backgroundColor: "rgba(46,95,163,0.75)", borderRadius: 5 },
+                { label: "Prom. Contestadas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].c / byDay[d].count) : 0), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 5 },
+                { label: "Prom. Abandonadas/día", data: order.map(d => byDay[d].count ? Math.round(byDay[d].ab / byDay[d].count) : 0), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 5 }
+            ]
+        };
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
+
     // ──── Chart: Turno comparison donut ──────────────────────────────────────
     const turnoCompChart = useMemo(() => {
         const target = selectedMonths.length > 0
@@ -2283,6 +2330,12 @@ function ViewMensual({ user }) {
                 ),
                 React.createElement("div", { style: { height: 160 } }, React.createElement(ChartBar, { id: "chart-turno-bar", data: turnoCompChart.bar, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
             )
+        ),
+
+        // ── WEEKDAY DISTRIBUTION ──────────────────────────────────────────────
+        weekDayChart && React.createElement(Card, { style: { marginBottom: 20 } },
+            React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 16 } }, "📅 Distribución por Día de la Semana"),
+            React.createElement("div", { style: { height: 280 } }, React.createElement(ChartBar, { id: "chart-weekday-dist", data: weekDayChart, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10, weight: "bold" } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
         ),
 
         // ── HEATMAP ────────────────────────────────────────────────────────────
