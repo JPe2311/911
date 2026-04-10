@@ -835,6 +835,17 @@ function ChartLine({ id, data, options }) {
     return React.createElement("canvas", { ref, id });
 }
 
+function ChartScatter({ id, data, options }) {
+    const ref = useRef(null); const chartRef = useRef(null);
+    useEffect(() => {
+        if (!ref.current) return;
+        if (chartRef.current) chartRef.current.destroy();
+        chartRef.current = new Chart(ref.current, { type: "scatter", data, options });
+        return () => { if (chartRef.current) chartRef.current.destroy(); };
+    }, [JSON.stringify(data)]);
+    return React.createElement("canvas", { ref, id });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  UI PRIMITIVES
 // ════════════════════════════════════════════════════════════════════════════
@@ -2814,6 +2825,120 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
             React.createElement(StatKpi, { label: "Prod. Promedio", value: stats.avgProd, sub: "Contestadas / Hora", accent: C.green }),
             React.createElement(StatKpi, { label: "Puntaje Calidad Avg", value: `${stats.avgQual}%`, sub: "% Tiempo Productivo", accent: C.mid })
+        ),
+
+        // ── SCATTER PLOTS ────────────────────────────────────────────────
+        combined.length > 0 && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
+            // Scatter 1: Abandonadas (X) vs Atendidas (Y)
+            React.createElement(Card, { style: { padding: 20 } },
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 } },
+                    React.createElement("span", { style: { fontSize: 18 } }, "🔴"),
+                    "Abandonadas vs Atendidas"
+                ),
+                React.createElement("div", { style: { height: 300 } },
+                    React.createElement(ChartScatter, {
+                        id: "scatter-abandon-vs-atendidas",
+                        data: {
+                            datasets: [{
+                                label: "Operadores",
+                                data: combined.map(p => ({ x: p.ab, y: p.c, name: p.name })),
+                                backgroundColor: combined.map(p => {
+                                    const ratio = p.ab / (p.c || 1);
+                                    return ratio > 0.15 ? "rgba(220,38,38,0.7)" : ratio > 0.08 ? "rgba(234,88,12,0.7)" : "rgba(22,163,74,0.7)";
+                                }),
+                                borderColor: combined.map(p => {
+                                    const ratio = p.ab / (p.c || 1);
+                                    return ratio > 0.15 ? "#dc2626" : ratio > 0.08 ? "#ea580c" : "#16a34a";
+                                }),
+                                borderWidth: 2,
+                                pointRadius: 7,
+                                pointHoverRadius: 10
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (ctx) => {
+                                            const pt = ctx.raw;
+                                            return `${pt.name}: ${pt.x} aband. / ${pt.y} atend.`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: "Cantidad Abandonadas", font: { size: 12, weight: "bold" }, color: C.navy },
+                                    beginAtZero: true,
+                                    grid: { color: "rgba(0,0,0,0.05)" },
+                                    ticks: { font: { size: 10 } }
+                                },
+                                y: {
+                                    title: { display: true, text: "Cantidad Atendidas", font: { size: 12, weight: "bold" }, color: C.navy },
+                                    beginAtZero: true,
+                                    grid: { color: "rgba(0,0,0,0.05)" },
+                                    ticks: { font: { size: 10 } }
+                                }
+                            }
+                        }
+                    })
+                )
+            ),
+            // Scatter 2: Tiempo Avisando Promedio (X) vs Tiempo Promedio de Atención (Y)
+            React.createElement(Card, { style: { padding: 20 } },
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 } },
+                    React.createElement("span", { style: { fontSize: 18 } }, "⏱"),
+                    "Tiempo Avisando vs Tiempo de Atención"
+                ),
+                React.createElement("div", { style: { height: 300 } },
+                    React.createElement(ChartScatter, {
+                        id: "scatter-avisando-vs-manejo",
+                        data: {
+                            datasets: [{
+                                label: "Operadores",
+                                data: combined.map(p => ({ x: p.avgAvisando, y: p.avgManejo, name: p.name })),
+                                backgroundColor: "rgba(46,95,163,0.65)",
+                                borderColor: C.mid,
+                                borderWidth: 2,
+                                pointRadius: 7,
+                                pointHoverRadius: 10
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (ctx) => {
+                                            const pt = ctx.raw;
+                                            return `${pt.name}: Avisando ${fmtSeconds(pt.x)} / Atención ${fmtSeconds(pt.y)}`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: "Tiempo Avisando Promedio (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
+                                    beginAtZero: true,
+                                    grid: { color: "rgba(0,0,0,0.05)" },
+                                    ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
+                                },
+                                y: {
+                                    title: { display: true, text: "Tiempo Promedio Atención (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
+                                    beginAtZero: true,
+                                    grid: { color: "rgba(0,0,0,0.05)" },
+                                    ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
+                                }
+                            }
+                        }
+                    })
+                )
+            )
         ),
 
         React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
