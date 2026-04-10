@@ -741,6 +741,45 @@ async function getGroupAverages(year) {
     return result;
 }
 
+async function getPerformanceByGroup(month, year) {
+    const [perf, staff] = await Promise.all([
+        getOperatorPerformance(month, year),
+        getStaffList()
+    ]);
+
+    const staffMap = {};
+    staff.forEach(s => { staffMap[s.normName] = s; });
+
+    const groups = {};
+    perf.forEach(p => {
+        const group = staffMap[p.normName]?.grupo || "Sin Grupo";
+        if (!groups[group]) {
+            groups[group] = {
+                group,
+                o: 0, c: 0, ab: 0,
+                sumAvisando: 0, sumManejo: 0,
+                countC: 0, ops: 0
+            };
+        }
+        groups[group].o += p.o;
+        groups[group].c += p.c;
+        groups[group].ab += p.ab;
+        if (p.c > 0) {
+            groups[group].sumAvisando += (p.avgAvisando || 0) * p.c;
+            groups[group].sumManejo += (p.avgManejo || 0) * p.c;
+            groups[group].countC += p.c;
+        }
+        groups[group].ops += 1;
+    });
+
+    return Object.values(groups).map(g => ({
+        ...g,
+        pctAb: g.o ? (g.ab / g.o * 100) : 0,
+        avgAvisando: g.countC ? Math.round(g.sumAvisando / g.countC) : 0,
+        avgManejo: g.countC ? Math.round(g.sumManejo / g.countC) : 0
+    })).sort((a, b) => b.c - a.c);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  AUTH HELPERS
 // ════════════════════════════════════════════════════════════════════════════
@@ -1463,7 +1502,7 @@ function getTurnoStats(turnoLabel, history) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: HISTORIAL — Firebase + local fallback
 // ════════════════════════════════════════════════════════════════════════════
-function ViewHistorial({ user }) {
+function ViewHistorial({ user, onBack, onLoadReport }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filterTurno, setFilterTurno] = useState(null);
@@ -1476,7 +1515,6 @@ function ViewHistorial({ user }) {
         let cancelled = false;
         setLoading(true);
         if (isFirebase) {
-            // Carga TODOS los reportes (todos los usuarios pueden ver, solo borrar los propios)
             loadReportsFromFirestore().then(reports => {
                 if (!cancelled) { setHistory(reports); setLoading(false); }
             });
@@ -1488,7 +1526,6 @@ function ViewHistorial({ user }) {
     }, [user]);
 
     const handleDelete = async (report) => {
-        // Solo puede borrar el propietario del reporte
         if (isFirebase && report.uid !== user?.uid) return;
         if (!confirm(`¿Eliminar el reporte ${report.id}? Esta acción no se puede deshacer.`)) return;
         setDeleting(report.id);
@@ -1505,12 +1542,14 @@ function ViewHistorial({ user }) {
 
     const turnos = [...new Set(history.map(r => r.turnoLabel))].filter(Boolean).sort().reverse();
     const filteredReports = filterTurno ? history.filter(r => r.turnoLabel === filterTurno) : history;
-    // El usuario actual solo puede borrar sus propios reportes
     const canDelete = (r) => !isFirebase || r.uid === user?.uid;
 
     if (loading) return React.createElement("div", { style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando historial…");
 
     if (!history.length) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } },
+        React.createElement("div", { style: { display: "flex", justifyContent: "flex-start", marginBottom: 20 } },
+            React.createElement("button", { onClick: onBack, style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Ir al Inicio")
+        ),
         React.createElement("div", { style: { fontSize: 28, marginBottom: 10 } }, "📋"),
         React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 6 } }, "Sin reportes guardados"),
         React.createElement("div", { style: { fontSize: 13 } }, isFirebase ? "Los reportes que generes se guardarán automáticamente en Firestore." : "Los reportes se guardan localmente en este navegador.")
@@ -1522,14 +1561,20 @@ function ViewHistorial({ user }) {
         const dpD = selectedReport.datos?.despachoDerivacion || [];
         const dpC = selectedReport.datos?.despachoCreacion || [];
 
-        return React.createElement("div", null,
+        return React.createElement("div", { className: "animate-fade" },
             React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 16 } },
-                    React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Listado"),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
-                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
-                    )
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+                        React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Listado"),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
+                            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
+                        )
+                    ),
+                    onLoadReport && React.createElement("button", { 
+                        onClick: () => onLoadReport(selectedReport),
+                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 4px 12px rgba(16,185,129,0.2)" } 
+                    }, "⚡ Cargar en Dashboard")
                 ),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
                     React.createElement("div", null,
@@ -1545,14 +1590,9 @@ function ViewHistorial({ user }) {
             React.createElement(Card, { style: { marginBottom: 20 } },
                 React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 } },
-                    React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen.totalOfrecidas, accent: C.mid }),
-                    React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen.totalContestadas, accent: C.green }),
-                    React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen.totalAbandonadas, accent: C.red })
-                ),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
-                    React.createElement(StatKpi, { label: "Promedio Inicio Desp.", value: fmtSeconds(avg(dpI)), accent: "#7c3aed" }),
-                    React.createElement(StatKpi, { label: "Promedio Derivaciones", value: fmtSeconds(avg(dpD)), accent: "#7c3aed" }),
-                    React.createElement(StatKpi, { label: "Promedio Creaciones", value: fmtSeconds(avg(dpC)), accent: "#7c3aed" })
+                    React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.mid }),
+                    React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
+                    React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
                 )
             ),
             selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
@@ -1568,45 +1608,33 @@ function ViewHistorial({ user }) {
                         ),
                         React.createElement("tbody", null,
                             selectedReport.datos.agentes.map((a, i) =>
-                                React.createElement("tr", { key: a.nombre, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                                React.createElement("tr", { key: a.nombre + i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                                     React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
                                     React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
                                     React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
                                     React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
-                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${a.disponibilidad.toFixed(1)}%`)
+                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${(a.disponibilidad || 0).toFixed(1)}%`)
                                 )
                             )
                         )
                     )
                 )
-            ),
-            (selectedReport.datos?.despachoInicio?.length > 0 || selectedReport.datos?.despachoDerivacion?.length > 0 || selectedReport.datos?.despachoCreacion?.length > 0) && React.createElement("div", null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🚓 Tiempos de Despacho (Mejores y Peores)"),
-                selectedReport.datos.despachoInicio?.length > 0 && React.createElement(DespachoSection, {
-                    title: "Inicio Despacho → Asignación",
-                    dataset: selectedReport.datos.despachoInicio,
-                    compact: true
-                }),
-                selectedReport.datos.despachoDerivacion?.length > 0 && React.createElement(DespachoSection, {
-                    title: "Derivación → Inicio Despacho",
-                    dataset: selectedReport.datos.despachoDerivacion,
-                    compact: true
-                }),
-                selectedReport.datos.despachoCreacion?.length > 0 && React.createElement(DespachoSection, {
-                    title: "Creación Evento → Despacho",
-                    dataset: selectedReport.datos.despachoCreacion,
-                    compact: true
-                })
             )
         );
     }
 
-    return React.createElement("div", null,
-        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
-            React.createElement(SectionTitle, { num: "5", title: "Historial de Reportes", sub: `${history.length} reportes — ${isFirebase ? "compartidos en tiempo real" : "almacenados localmente"}` }),
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📋 Historial de Reportes"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, `${history.length} reportes guardados`)
+                )
+            ),
             isFirebase && React.createElement("button", {
                 onClick: () => { setLoading(true); loadReportsFromFirestore().then(r => { setHistory(r); setLoading(false); }); },
-                style: { background: C.light, border: `1px solid ${C.mid}`, color: C.blue, borderRadius: 7, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
+                style: { background: C.greenBg, border: `1px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }
             }, "↺ Actualizar")
         ),
 
@@ -1618,44 +1646,29 @@ function ViewHistorial({ user }) {
             )
         ),
 
-        filterTurno && (() => {
-            const stats = getTurnoStats(filterTurno, history); return stats ? React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, `Estadísticas: ${filterTurno}`),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 } },
-                    React.createElement(StatKpi, { label: "Reportes", value: stats.cantidad, accent: C.blue }),
-                    React.createElement(StatKpi, { label: "Total Ofrecidas", value: stats.totalOfrecidas, accent: C.mid }),
-                    React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalContestadas, accent: C.green }),
-                    React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAbandonadas, accent: C.red })
-                )
-            ) : null;
-        })(),
-
-        React.createElement(Card, null,
+        React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
             React.createElement("div", { style: { overflowX: "auto" } },
-                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
+                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
-                        React.createElement("tr", { style: { background: C.blue } },
-                            ["ID Reporte", "Usuario", "Fecha Guardado", "Turno", "Ofrecidas", "Contestadas", "Abandonadas", "Acciones"].map(h =>
-                                React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
+                        React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
+                            ["ID Reporte", "Usuario", "Fecha", "Turno", "Contest.", "Aband.", "Acciones"].map(h =>
+                                React.createElement("th", { key: h, style: { padding: "14px 16px", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
                             )
                         )
                     ),
                     React.createElement("tbody", null,
                         filteredReports.map((r, i) => {
-                            const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleString("es-ES") : "-";
+                            const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleDateString("es-ES") : "-";
                             return React.createElement("tr", { key: r.id || i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                                React.createElement("td", { style: { padding: "9px 12px", fontWeight: 700, fontFamily: "monospace", fontSize: 9, color: C.blue } }, r.id),
-                                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray, fontWeight: 600 } }, r.usuario || r.userDisplayName || r.userEmail || r.uid || "-"),
-                                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, color: C.gray } }, reportDate),
-                                React.createElement("td", { style: { padding: "9px 12px", fontSize: 10, fontWeight: 600 } }, r.turnoLabel),
-                                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, r.resumen?.totalOfrecidas),
-                                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen?.totalContestadas),
-                                React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen?.totalAbandonadas),
-                                React.createElement("td", { style: { padding: "9px 12px", display: "flex", gap: 6, alignItems: "center" } },
-                                    React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.blue, color: "#fff", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer" } }, "Ver"),
-                                    canDelete(r)
-                                        ? React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: C.redBg, color: C.red, border: `1px solid #fca5a5`, borderRadius: 4, padding: "4px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer" } }, deleting === r.id ? "…" : "✕")
-                                        : React.createElement("span", { title: "Solo el autor puede eliminar este reporte", style: { fontSize: 10, color: C.gray, padding: "4px 6px" } }, "🔒")
+                                React.createElement("td", { style: { padding: "12px 16px", fontWeight: 700, fontFamily: "monospace", fontSize: 10, color: C.blue } }, r.id.substring(0, 10) + "…"),
+                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray, fontWeight: 600 } }, r.userDisplayName || r.userEmail || "Sistema"),
+                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray } }, reportDate),
+                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, fontWeight: 600 } }, r.turnoLabel),
+                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen?.totalContestadas || 0),
+                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen?.totalAbandonadas || 0),
+                                React.createElement("td", { style: { padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" } },
+                                    React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.mid, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Ver"),
+                                    canDelete(r) && React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: "transparent", color: C.red, border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, cursor: "pointer" } }, "✕")
                                 )
                             );
                         })
@@ -2798,6 +2811,157 @@ function MensualHeatmap({ report, turnoFilter }) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+//  VIEW: COMPARATIVA DE GRUPOS
+// ════════════════════════════════════════════════════════════════════════════
+function ViewComparativaGrupos({ user, onBack }) {
+    const [data, setData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState({
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear().toString()
+    });
+
+    const loadData = async () => {
+        setLoading(true);
+        const res = await getPerformanceByGroup(filter.month, filter.year);
+        setData(res);
+        setLoading(false);
+    };
+
+    useEffect(() => { loadData(); }, [filter]);
+
+    const stats = useMemo(() => {
+        if (!data.length) return null;
+        const totalC = data.reduce((s, g) => s + g.c, 0);
+        const bestAb = [...data].sort((a, b) => a.pctAb - b.pctAb)[0];
+        const bestProd = [...data].sort((a, b) => (b.c / (b.ops || 1)) - (a.c / (a.ops || 1)))[0];
+        return { totalC, bestAb, bestProd };
+    }, [data]);
+
+    return React.createElement("div", { className: "animate-fade" },
+        // Header
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Comparativa de Grupos"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Métricas agregadas por Célula/Grupo")
+                )
+            ),
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("select", {
+                    value: filter.month,
+                    onChange: e => setFilter({ ...filter, month: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(m =>
+                        React.createElement("option", { key: m, value: m }, m)
+                    )
+                ),
+                React.createElement("select", {
+                    value: filter.year,
+                    onChange: e => setFilter({ ...filter, year: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+                )
+            )
+        ),
+
+        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando comparativa…") :
+            data.length === 0 ? React.createElement("div", { style: { textAlign: "center", padding: 40, background: "#fff", borderRadius: 12, color: C.gray } }, "No hay datos para este periodo.") :
+                React.createElement(React.Fragment, null,
+                    // KPI Cards
+                    stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
+                        React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
+                        React.createElement(StatKpi, { label: "Grupo Menor Abandono", value: stats.bestAb.group, sub: `${stats.bestAb.pctAb.toFixed(1)}% de tasa`, accent: C.green }),
+                        React.createElement(StatKpi, { label: "Grupo Más Productivo", value: stats.bestProd.group, sub: `${(stats.bestProd.c / (stats.bestProd.ops || 1)).toFixed(0)} llam./op`, accent: C.mid })
+                    ),
+
+                    // Charts Grid
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
+                        // Chart 1: Abandono
+                        React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📉 Tasa de Abandono por Grupo (%)"),
+                            React.createElement("div", { style: { height: 260 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-group-abandon",
+                                    data: {
+                                        labels: data.map(g => g.group),
+                                        datasets: [{
+                                            label: "% Abandono",
+                                            data: data.map(g => g.pctAb.toFixed(1)),
+                                            backgroundColor: data.map(g => g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true, maintainAspectRatio: false,
+                                        scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }
+                                    }
+                                })
+                            )
+                        ),
+                        // Chart 2: TMO (Manejo)
+                        React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "⏱ Tiempo de Manejo Promedio"),
+                            React.createElement("div", { style: { height: 260 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-group-tmo",
+                                    data: {
+                                        labels: data.map(g => g.group),
+                                        datasets: [{
+                                            label: "Segundos",
+                                            data: data.map(g => g.avgManejo),
+                                            backgroundColor: C.mid,
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true, maintainAspectRatio: false,
+                                        plugins: { tooltip: { callbacks: { label: ctx => fmtSeconds(ctx.raw) } } }
+                                    }
+                                })
+                            )
+                        )
+                    ),
+
+                    // Detailed Table
+                    React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+                        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                            React.createElement("thead", null,
+                                React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
+                                    ["Grupo", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
+                                        React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
+                                    )
+                                )
+                            ),
+                            React.createElement("tbody", null,
+                                data.map((g, i) => React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
+                                    React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } }, g.c.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
+                                        React.createElement(Badge, {
+                                            label: `${g.pctAb.toFixed(1)}%`,
+                                            color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
+                                            bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
+                                        })
+                                    ),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
+                                ))
+                            )
+                        )
+                    )
+                )
+    );
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
 //  VIEW: ANÁLISIS DE OPERADORES (Métricas Mensuales)
 // ════════════════════════════════════════════════════════════════════════════
 function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
@@ -3666,6 +3830,7 @@ function App() {
         { id: "despacho", label: "🚓 Despacho", avail: !!(files.despachoInicio || files.despachoDerivacion || files.despachoCreacion) },
         { id: "operadores_analisis", label: "🏆 Ranking", avail: true },
         { id: "operadores_perfil", label: "👤 Perfil", avail: true },
+        { id: "comparativa_grupos", label: "👥 Grupos", avail: true },
         { id: "mensual", label: "📈 Mensual", avail: true },
         { id: "historial", label: "📋 Historial", avail: true },
         { id: "personal", label: "👥 Personal", avail: true },
@@ -3762,30 +3927,54 @@ function App() {
                     )
                 ),
 
-                // ── SECCIÓN DESEMPEÑO (NUEVA) ──────────────────────────────────
-                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "flex", justifyContent: "center", gap: 24 } },
+                // ── SECCIÓN ACCESOS RÁPIDOS ──────────────────────────────────
+                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20 } },
                     React.createElement(Card, {
                         onClick: () => setView("operadores_analisis"),
-                        style: { cursor: "pointer", transition: "all .2s", padding: "24px 32px", display: "flex", gap: 18, alignItems: "center", minWidth: 400 },
+                        style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center" },
                         onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
                         onMouseOut: e => e.currentTarget.style.transform = "none"
                     },
-                        React.createElement("div", { style: { fontSize: 40 } }, "📊"),
+                        React.createElement("div", { style: { fontSize: 32 } }, "📊"),
                         React.createElement("div", null,
-                            React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Ranking Detallado"),
-                            React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4 } }, "Ranking de calidad y productividad mensual")
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Ranking Detallado"),
+                            React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Ranking de calidad y productividad")
                         )
                     ),
                     React.createElement(Card, {
                         onClick: () => setView("operadores_perfil"),
-                        style: { cursor: "pointer", transition: "all .2s", padding: "24px 32px", display: "flex", gap: 18, alignItems: "center", minWidth: 400 },
+                        style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center" },
                         onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
                         onMouseOut: e => e.currentTarget.style.transform = "none"
                     },
-                        React.createElement("div", { style: { fontSize: 40 } }, "👤"),
+                        React.createElement("div", { style: { fontSize: 32 } }, "👤"),
                         React.createElement("div", null,
-                            React.createElement("div", { style: { fontWeight: 900, fontSize: 18, color: C.navy } }, "Perfil Individual"),
-                            React.createElement("div", { style: { fontSize: 13, color: C.gray, marginTop: 4 } }, "Historial y dashboards comparativos por persona")
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Perfil Individual"),
+                            React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Dashboards comparativos por persona")
+                        )
+                    ),
+                    React.createElement(Card, {
+                        onClick: () => setView("comparativa_grupos"),
+                        style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center", borderTop: `4px solid ${C.mid}` },
+                        onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                        onMouseOut: e => e.currentTarget.style.transform = "none"
+                    },
+                        React.createElement("div", { style: { fontSize: 32 } }, "👥"),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Comparativa Grupos"),
+                            React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Métricas agregadas por célula")
+                        )
+                    ),
+                    React.createElement(Card, {
+                        onClick: () => setView("historial"),
+                        style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center", borderTop: `4px solid ${C.navy}` },
+                        onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                        onMouseOut: e => e.currentTarget.style.transform = "none"
+                    },
+                        React.createElement("div", { style: { fontSize: 32 } }, "📋"),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Historial de Reportes"),
+                            React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Consultar informes guardados")
                         )
                     )
                 )
@@ -3793,6 +3982,8 @@ function App() {
 
             view === "resumen" && React.createElement(ViewResumen, { data: files }),
             view === "mensual" && React.createElement(ViewMensual, { user, onBack: () => setView("upload") }),
+            view === "comparativa_grupos" && React.createElement(ViewComparativaGrupos, { user, onBack: () => setView("upload") }),
+            view === "historial" && React.createElement(ViewHistorial, { user, onBack: () => setView("upload"), onLoadReport: (rep) => { setFiles(rep.datos || {}); setLoaded(Object.keys(rep.datos || {}).filter(k => rep.datos[k] && (Array.isArray(rep.datos[k]) ? rep.datos[k].length > 0 : true))); setView("resumen"); } }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
             view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
