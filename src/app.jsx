@@ -1669,7 +1669,7 @@ function ViewHistorial({ user }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: MENSUAL (Enhanced — Filters, Charts, Turno)
 // ════════════════════════════════════════════════════════════════════════════
-function ViewMensual({ user }) {
+function ViewMensual({ user, onBack }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -2140,10 +2140,13 @@ function ViewMensual({ user }) {
         // ── HEADER BANNER ──────────────────────────────────────────────────────
         React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff", position: "relative" } },
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, ""),
-                    React.createElement("div", { style: { fontSize: 26, fontWeight: 900 } }, "Análisis Mensual"),
-                    React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, `${filteredHistory.length} registros • ${turnoLabel}`)
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                    onBack && React.createElement("button", { onClick: onBack, style: { background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" } }, "←"),
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, ""),
+                        React.createElement("div", { style: { fontSize: 26, fontWeight: 900 } }, "Análisis Mensual"),
+                        React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, `${filteredHistory.length} registros • ${turnoLabel}`)
+                    )
                 ),
                 React.createElement("div", { style: { textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 } },
                     kpis.tO > 0 && React.createElement("div", null,
@@ -3789,6 +3792,7 @@ function App() {
             ),
 
             view === "resumen" && React.createElement(ViewResumen, { data: files }),
+            view === "mensual" && React.createElement(ViewMensual, { user, onBack: () => setView("upload") }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
             view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
