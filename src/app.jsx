@@ -1003,6 +1003,42 @@ function UploadZone({ onFiles, loaded }) {
 // ════════════════════════════════════════════════════════════════════════════
 function ViewResumen({ data }) {
     const { abandonadas: ab, agentes: ag, despachoInicio: dpI, despachoDerivacion: dpD, despachoCreacion: dpC } = data;
+    const [groupFilter, setGroupFilter] = useState("all");
+    const [staffMap, setStaffMap] = useState({});
+
+    useEffect(() => {
+        getStaffList().then(list => {
+            const map = {};
+            list.forEach(s => { map[s.normName] = s; });
+            setStaffMap(map);
+        });
+    }, []);
+
+    const groups = useMemo(() => {
+        const s = new Set();
+        Object.values(staffMap).forEach(st => { if (st.grupo) s.add(st.grupo); });
+        return Array.from(s).sort();
+    }, [staffMap]);
+
+    const agentsRanking = useMemo(() => {
+        if (!ag?.agents?.length) return { top: [], bot: [] };
+        let main = ag.agents.filter(a => a.ofrecidas >= 30);
+        
+        if (groupFilter !== "all") {
+            main = main.filter(a => {
+                const norm = normalizeName(a.nombre);
+                return staffMap[norm]?.grupo === groupFilter;
+            });
+        }
+
+        main = main.sort((a, b) => b.contestadas - a.contestadas);
+        return {
+            top: main.slice(0, 3),
+            bot: [...main].reverse().slice(0, 3),
+            total: main.length
+        };
+    }, [ag, groupFilter, staffMap]);
+
     // Para gráficos generales usamos despacho-inicio como referencia principal
     const dp = dpI?.length ? dpI : (dpD?.length ? dpD : dpC);
     const tot = ab?.totals || {};
@@ -1041,16 +1077,6 @@ function ViewResumen({ data }) {
             datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => (d.tiempoSec || 0) > 200 ? C.red : (d.tiempoSec || 0) < 40 ? C.green : C.mid) }]
         };
     }, [dp]);
-
-    const agentsRanking = useMemo(() => {
-        if (!ag?.agents?.length) return { top: [], bot: [] };
-        const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
-        return {
-            top: main.slice(0, 3),
-            bot: [...main].reverse().slice(0, 3),
-            total: main.length
-        };
-    }, [ag]);
 
     const gaugeData = useMemo(() => {
         const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
@@ -1098,7 +1124,19 @@ function ViewResumen({ data }) {
                 React.createElement("div", { style: { height: 320 } }, React.createElement(ChartBar, { id: "chart-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
             ),
             agentsRanking.top.length > 0 && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 16 } }, "🏆 Ranking del Turno"),
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
+                    React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
+                        React.createElement("span", null, "🏆 Ranking del Turno"),
+                    ),
+                    groups.length > 0 && React.createElement("select", {
+                        value: groupFilter,
+                        onChange: e => setGroupFilter(e.target.value),
+                        style: { padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.mid, outline: "none" }
+                    },
+                        React.createElement("option", { value: "all" }, "Todos los Grupos"),
+                        groups.map(g => React.createElement("option", { key: g, value: g }, g))
+                    )
+                ),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: 12 } },
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.green, marginBottom: 8, textTransform: "uppercase" } }, "🥇 Top 3 - Mejores"),
@@ -2881,133 +2919,152 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
         ),
 
         // ── SCATTER PLOTS ────────────────────────────────────────────────
-        combined.length > 0 && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
+        filteredCombined.length > 0 && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
             // Scatter 1: Abandonadas (X) vs Atendidas (Y)
             React.createElement(Card, { style: { padding: 20 } },
-                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 } },
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 } },
                     React.createElement("span", { style: { fontSize: 18 } }, "🔴"),
                     "Abandonadas vs Atendidas"
                 ),
+                React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 12 } }, "Clic en un punto para ver el perfil del operador"),
                 React.createElement("div", { style: { height: 300 } },
-                    React.createElement(ChartScatter, {
-                        id: "scatter-abandon-vs-atendidas",
-                        data: {
-                            datasets: [{
-                                label: "Operadores",
-                                data: combined.map(p => ({ x: p.ab, y: p.c, name: p.name })),
-                                backgroundColor: combined.map(p => {
-                                    const ratio = p.ab / (p.c || 1);
-                                    return ratio > 0.15 ? "rgba(220,38,38,0.7)" : ratio > 0.08 ? "rgba(234,88,12,0.7)" : "rgba(22,163,74,0.7)";
-                                }),
-                                borderColor: combined.map(p => {
-                                    const ratio = p.ab / (p.c || 1);
-                                    return ratio > 0.15 ? "#dc2626" : ratio > 0.08 ? "#ea580c" : "#16a34a";
-                                }),
-                                borderWidth: 2,
-                                pointRadius: 7,
-                                pointHoverRadius: 10
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    callbacks: {
-                                        label: (ctx) => {
-                                            const pt = ctx.raw;
-                                            return `${pt.name}: ${pt.x} aband. / ${pt.y} atend.`;
+                    (() => {
+                        const scatter1Data = filteredCombined.filter(p => p.ab > 0 || p.c > 0);
+                        return React.createElement(ChartScatter, {
+                            id: "scatter-abandon-vs-atendidas",
+                            data: {
+                                datasets: [{
+                                    label: "Operadores",
+                                    data: scatter1Data.map(p => ({ x: p.ab, y: p.c, name: p.name, normName: p.normName })),
+                                    backgroundColor: scatter1Data.map(p => {
+                                        const ratio = p.ab / (p.c || 1);
+                                        return ratio > 0.15 ? "rgba(220,38,38,0.7)" : ratio > 0.08 ? "rgba(234,88,12,0.7)" : "rgba(22,163,74,0.7)";
+                                    }),
+                                    borderColor: scatter1Data.map(p => {
+                                        const ratio = p.ab / (p.c || 1);
+                                        return ratio > 0.15 ? "#dc2626" : ratio > 0.08 ? "#ea580c" : "#16a34a";
+                                    }),
+                                    borderWidth: 2,
+                                    pointRadius: 7,
+                                    pointHoverRadius: 10
+                                }]
+                            },
+                            onPointClick: (index) => {
+                                const p = scatter1Data[index];
+                                if (p) navigateToProfile(p.normName);
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: (ctx) => {
+                                                const pt = ctx.raw;
+                                                return `${pt.name}: ${pt.x} aband. / ${pt.y} atend.`;
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            scales: {
-                                x: {
-                                    title: { display: true, text: "Cantidad Abandonadas", font: { size: 12, weight: "bold" }, color: C.navy },
-                                    beginAtZero: true,
-                                    grid: { color: "rgba(0,0,0,0.05)" },
-                                    ticks: { font: { size: 10 } }
                                 },
-                                y: {
-                                    title: { display: true, text: "Cantidad Atendidas", font: { size: 12, weight: "bold" }, color: C.navy },
-                                    beginAtZero: true,
-                                    grid: { color: "rgba(0,0,0,0.05)" },
-                                    ticks: { font: { size: 10 } }
+                                scales: {
+                                    x: {
+                                        title: { display: true, text: "Cantidad Abandonadas", font: { size: 12, weight: "bold" }, color: C.navy },
+                                        beginAtZero: true,
+                                        grid: { color: "rgba(0,0,0,0.05)" },
+                                        ticks: { font: { size: 10 } }
+                                    },
+                                    y: {
+                                        title: { display: true, text: "Cantidad Atendidas", font: { size: 12, weight: "bold" }, color: C.navy },
+                                        beginAtZero: true,
+                                        grid: { color: "rgba(0,0,0,0.05)" },
+                                        ticks: { font: { size: 10 } }
+                                    }
                                 }
                             }
-                        }
-                    })
+                        });
+                    })()
                 )
             ),
             // Scatter 2: Tiempo Avisando Promedio (X) vs Tiempo Promedio de Atención (Y)
             React.createElement(Card, { style: { padding: 20 } },
-                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 } },
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 } },
                     React.createElement("span", { style: { fontSize: 18 } }, "⏱"),
                     "Tiempo Avisando vs Tiempo de Atención"
                 ),
+                React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 12 } }, "Clic en un punto para ver el perfil del operador"),
                 React.createElement("div", { style: { height: 300 } },
-                    React.createElement(ChartScatter, {
-                        id: "scatter-avisando-vs-manejo",
-                        data: {
-                            datasets: [{
-                                label: "Operadores",
-                                data: combined.map(p => ({ x: p.avgAvisando, y: p.avgManejo, name: p.name })),
-                                backgroundColor: "rgba(46,95,163,0.65)",
-                                borderColor: C.mid,
-                                borderWidth: 2,
-                                pointRadius: 7,
-                                pointHoverRadius: 10
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    callbacks: {
-                                        label: (ctx) => {
-                                            const pt = ctx.raw;
-                                            return `${pt.name}: Avisando ${fmtSeconds(pt.x)} / Atención ${fmtSeconds(pt.y)}`;
+                    (() => {
+                        const scatter2Data = filteredCombined.filter(p => p.avgAvisando > 0 || p.avgManejo > 0);
+                        return React.createElement(ChartScatter, {
+                            id: "scatter-avisando-vs-manejo",
+                            data: {
+                                datasets: [{
+                                    label: "Operadores",
+                                    data: scatter2Data.map(p => ({ x: p.avgAvisando, y: p.avgManejo, name: p.name, normName: p.normName })),
+                                    backgroundColor: "rgba(46,95,163,0.65)",
+                                    borderColor: C.mid,
+                                    borderWidth: 2,
+                                    pointRadius: 7,
+                                    pointHoverRadius: 10
+                                }]
+                            },
+                            onPointClick: (index) => {
+                                const p = scatter2Data[index];
+                                if (p) navigateToProfile(p.normName);
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: (ctx) => {
+                                                const pt = ctx.raw;
+                                                return `${pt.name}: Avisando ${fmtSeconds(pt.x)} / Atención ${fmtSeconds(pt.y)}`;
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            scales: {
-                                x: {
-                                    title: { display: true, text: "Tiempo Avisando Promedio (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
-                                    beginAtZero: true,
-                                    grid: { color: "rgba(0,0,0,0.05)" },
-                                    ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
                                 },
-                                y: {
-                                    title: { display: true, text: "Tiempo Promedio Atención (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
-                                    beginAtZero: true,
-                                    grid: { color: "rgba(0,0,0,0.05)" },
-                                    ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
+                                scales: {
+                                    x: {
+                                        title: { display: true, text: "Tiempo Avisando Promedio (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
+                                        beginAtZero: true,
+                                        grid: { color: "rgba(0,0,0,0.05)" },
+                                        ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
+                                    },
+                                    y: {
+                                        title: { display: true, text: "Tiempo Promedio Atención (seg)", font: { size: 12, weight: "bold" }, color: C.navy },
+                                        beginAtZero: true,
+                                        grid: { color: "rgba(0,0,0,0.05)" },
+                                        ticks: { font: { size: 10 }, callback: v => fmtSeconds(v) }
+                                    }
                                 }
                             }
-                        }
-                    })
+                        });
+                    })()
                 )
             )
         ),
 
         React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
-            React.createElement("div", { style: { padding: "16px 20px", background: "#f8fafc", borderBottom: `1px solid ${C.border}`, fontWeight: 800, color: C.navy, fontSize: 14 } }, "Ranking de Desempeño (Clic para ver detalle)"),
+            React.createElement("div", { style: { padding: "16px 20px", background: "#f8fafc", borderBottom: `1px solid ${C.border}`, fontWeight: 800, color: C.navy, fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                React.createElement("span", null, "Ranking de Desempeño (Clic para ver detalle)"),
+                groupFilter !== "all" && React.createElement(Badge, { label: `Grupo: ${groupFilter}`, color: C.blue, bg: C.light })
+            ),
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
+                        ["Operador", "Grupo", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
                 ),
                 React.createElement("tbody", null,
                     loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando métricas...")) :
-                        combined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período. Cargá el reporte de OPERADORES.")) :
-                            combined.map((p, i) => (
+                        filteredCombined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período/grupo.")) :
+                            filteredCombined.map((p, i) => (
                                 React.createElement(React.Fragment, { key: p.normName },
                                     React.createElement("tr", {
                                         onClick: () => setExpanded(expanded === p.normName ? null : p.normName),
@@ -3022,6 +3079,9 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                                     style: { fontWeight: 800, color: C.blue, fontSize: 13, textDecoration: "underline" }
                                                 }, p.name)
                                             )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: p.grupo || "S/G", color: p.grupo ? C.mid : C.gray, bg: p.grupo ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -3464,6 +3524,161 @@ function ViewGestorPersonal({ user, onBack }) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
+//  VIEW: GESTOR DE PERSONAL (Grupos)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewGestorPersonal({ user, onBack }) {
+    const [staff, setStaff] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(null); // normName being saved
+    const [searchTerm, setSearchTerm] = useState("");
+
+    const loadStaff = async () => {
+        setLoading(true);
+        const [registered, performance] = await Promise.all([
+            getStaffList(),
+            getUniqueOperators()
+        ]);
+
+        // Merge sources: ensure all unique operators seen in performance reports are listed
+        const masterList = [...registered];
+        performance.forEach(op => {
+            if (!masterList.find(s => s.normName === op.normName)) {
+                masterList.push({ ...op, turno: "—", grupo: "" });
+            }
+        });
+
+        setStaff(masterList.sort((a, b) => a.name.localeCompare(b.name)));
+        setLoading(false);
+    };
+
+    useEffect(() => { loadStaff(); }, []);
+
+    const handleUpdateGroup = async (normName, group) => {
+        setSaving(normName);
+        await updateStaffGroup(normName, group);
+        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, grupo: group } : s));
+        setSaving(null);
+    };
+
+    const handleUpdateName = async (normName, newName) => {
+        setSaving(normName);
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            await setDoc(doc(db, "staff", normName), { name: newName }, { merge: true });
+            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, name: newName } : s));
+        }
+        setSaving(null);
+    };
+
+    const filteredStaff = staff.filter(s =>
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.grupo || "").toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const groupCounts = useMemo(() => {
+        const counts = {};
+        staff.forEach(s => {
+            if (s.grupo) counts[s.grupo] = (counts[s.grupo] || 0) + 1;
+        });
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    }, [staff]);
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Gestión de Personal"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Asignación de grupos y organización de operadores")
+                )
+            ),
+            React.createElement("div", { style: { position: "relative" } },
+                React.createElement("input", {
+                    type: "text",
+                    placeholder: "Buscar por nombre o grupo...",
+                    value: searchTerm,
+                    onChange: e => setSearchTerm(e.target.value),
+                    style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 280, color: C.navy }
+                }),
+                React.createElement("span", { style: { position: "absolute", left: 14, top: 11, fontSize: 16 } }, "🔍")
+            )
+        ),
+
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, alignItems: "start" } },
+            // Table
+            React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                    React.createElement("thead", null,
+                        React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
+                            ["Operador", "Turno", "Grupo / Célula"].map(h =>
+                                React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
+                            )
+                        )
+                    ),
+                    React.createElement("tbody", null,
+                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
+                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
+                                filteredStaff.map((s, i) => (
+                                    React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                                (saving === s.normName) && React.createElement("span", { className: "animate-spin", style: { fontSize: 12 } }, "⏳"),
+                                                React.createElement("input", {
+                                                    defaultValue: s.name,
+                                                    onBlur: e => e.target.value !== s.name && handleUpdateName(s.normName, e.target.value),
+                                                    style: { border: "none", background: "transparent", fontWeight: 800, color: C.navy, fontSize: 14, padding: "4px 0", width: "100%" }
+                                                })
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: s.turno || "—", color: C.gray, bg: "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("input", {
+                                                type: "text",
+                                                placeholder: "Sin grupo (Ej: Alpha-1)...",
+                                                defaultValue: s.grupo || "",
+                                                onBlur: e => e.target.value !== (s.grupo || "") && handleUpdateGroup(s.normName, e.target.value),
+                                                style: {
+                                                    padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                                                    fontSize: 13, background: s.grupo ? "rgba(46,95,163,0.05)" : "#fff",
+                                                    fontWeight: s.grupo ? 700 : 400, color: s.grupo ? C.mid : C.gray,
+                                                    width: "100%", outline: "none"
+                                                }
+                                            })
+                                        )
+                                    )
+                                ))
+                    )
+                )
+            ),
+
+            // Sidebar: Grupos
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+                React.createElement(Card, null,
+                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 16, fontSize: 14 } }, "🏢 Grupos Detectados"),
+                    groupCounts.length === 0 ? React.createElement("div", { style: { fontSize: 12, color: C.gray, textAlign: "center", padding: "10px 0" } }, "No hay grupos asignados") :
+                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                            groupCounts.map(([g, c]) =>
+                                React.createElement("div", { key: g, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 } },
+                                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: C.mid } }, g),
+                                    React.createElement("span", { style: { background: C.mid, color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 800 } }, c)
+                                )
+                            )
+                        )
+                ),
+                React.createElement("div", { style: { padding: "12px 16px", background: "#fffbeb", borderRadius: 12, border: `1px solid #fef3c7`, color: "#92400e", fontSize: 12, lineHeight: 1.5 } },
+                    React.createElement("div", { style: { fontWeight: 900, marginBottom: 4 } }, "💡 Sugerencia"),
+                    "Asigna nombres de grupos para habilitar filtros avanzados y comparativas por equipo en los paneles de análisis."
+                )
+            )
+        )
+    );
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
 function App() {
@@ -3629,6 +3844,17 @@ function App() {
 
                 // Historial nav (siempre visible)
                 !hasData && React.createElement("button", { onClick: () => setView("historial"), style: { background: view === "historial" ? "rgba(255,255,255,0.18)" : "transparent", border: view === "historial" ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent", color: view === "historial" ? "#fff" : "#94a3b8", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "📋 Historial"),
+
+                // Personal nav (siempre visible)
+                React.createElement("button", { 
+                    onClick: () => setView("personal"), 
+                    style: { 
+                        background: view === "personal" ? "rgba(255,255,255,0.18)" : "transparent", 
+                        border: view === "personal" ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent", 
+                        color: view === "personal" ? "#fff" : "#94a3b8", 
+                        borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" 
+                    } 
+                }, "👥 Personal"),
 
                 hasData && React.createElement("label", { title: "Agregar más archivos", style: { background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600, position: "relative" } },
                     "+ CSV",
