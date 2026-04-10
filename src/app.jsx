@@ -702,7 +702,7 @@ async function getUniqueOperators() {
             map.set(data.normName, { normName: data.normName, name: data.name });
         }
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
 async function getGroupAverages(year) {
@@ -1243,7 +1243,7 @@ function ViewResumen({ data }) {
             tot.ofrecidas && React.createElement(StatKpi, { label: "Llamadas Recibidas", value: tot.ofrecidas.toLocaleString("es-AR"), sub: `~${Math.round(tot.ofrecidas / 12)}/hora`, accent: C.mid }),
             tot.contestadas && React.createElement(StatKpi, { label: "Atendidas", value: tot.contestadas.toLocaleString("es-AR"), sub: `${pctAtend.toFixed(1)}% del total`, accent: C.green }),
             tot.abandonadas && React.createElement(StatKpi, { label: "Abandonadas", value: tot.abandonadas.toLocaleString("es-AR"), sub: `${pctAband.toFixed(1)}% del total`, accent: C.red }),
-            ag?.agents?.filter(a => a.ofrecidas >= 30).length > 0 && React.createElement(StatKpi, { label: "Operadores Activos", value: ag.agents.filter(a => a.ofrecidas >= 30).length, sub: "cabinas cubiertas", accent: C.yellow }),
+            ag?.agents?.filter(a => a.ofrecidas >= 30).length > 0 && React.createElement(StatKpi, { label: "Operadores Activos", value: (ag.agents || []).filter(a => a.ofrecidas >= 30).length, sub: "cabinas cubiertas", accent: C.yellow }),
             dpI?.length > 0 && React.createElement(StatKpi, { label: "Distritos Evaluados", value: dpI.length, sub: "en el período", accent: "#7c3aed" }),
         ),
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 } },
@@ -1451,7 +1451,7 @@ function ViewHoras({ data }) {
 function ViewOperadores({ data }) {
     const ag = data.agentes;
     if (!ag) return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá el archivo de Llamadas por Agente.");
-    const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
+    const main = (ag.agents || []).filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
 
     return React.createElement("div", null,
         React.createElement(SectionTitle, { num: "3", title: "Gestión por Operador", sub: `${main.length} operadores activos` }),
@@ -3663,7 +3663,7 @@ function ViewGestorPersonal({ user, onBack }) {
             }
         });
 
-        setStaff(masterList.sort((a, b) => a.name.localeCompare(b.name)));
+        setStaff(masterList.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         setLoading(false);
     };
 
