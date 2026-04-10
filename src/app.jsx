@@ -741,6 +741,110 @@ async function getGroupAverages(year) {
     return result;
 }
 
+// ─── Hallazgos Globales (Scanning Historical Data) ─────────────────────
+async function getGlobalInsights(year = 2026) {
+    try {
+        const db = getDB();
+        if (!db) return [];
+        const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        
+        const perfRef = collection(db, "operator_performance");
+        const q = query(perfRef, where("year", "==", year));
+        const snap = await getDocs(q);
+        const data = snap.docs.map(d => d.data());
+        if (!data.length) return [];
+
+        const insights = [];
+        const monthNum = new Date().getMonth() + 1;
+        
+        // 1. Tendencia de Abandono
+        const currentMonthData = data.filter(d => d.month === monthNum);
+        const prevMonthData = data.filter(d => d.month === monthNum - 1);
+        
+        const getAvgAb = (arr) => arr.length ? arr.reduce((s, v) => s + (v.ab || 0), 0) / arr.length : null;
+        const curAvg = getAvgAb(currentMonthData);
+        const prevAvg = getAvgAb(prevMonthData);
+        
+        if (curAvg !== null && prevAvg !== null) {
+            const diff = curAvg - prevAvg;
+            if (Math.abs(diff) > 0.5) {
+                insights.push({
+                    type: diff > 0 ? "red" : "green",
+                    icon: diff > 0 ? "📈" : "📉",
+                    title: "Tendencia de Abandono",
+                    msg: `El abandono general ${diff > 0 ? "subió" : "bajó"} un ${Math.abs(diff).toFixed(1)}% respecto al mes pasado.`,
+                    value: `${curAvg.toFixed(1)}%`
+                });
+            }
+        }
+
+        // 2. TMO Promedio
+        const avgTmo = data.reduce((s, v) => s + (v.avgManejo || 0), 0) / data.length;
+        if (avgTmo > 180) {
+            insights.push({
+                type: "orange",
+                icon: "⏱️",
+                title: "Alerta de TMO",
+                msg: "El TMO promedio anual supera los 3 minutos. Se recomienda revisar protocolos de atención.",
+                value: fmtSeconds(avgTmo)
+            });
+        }
+
+        // 3. Liderazgo de Célula
+        const groups = [...new Set(data.map(d => d.groupName))].filter(Boolean);
+        const groupStats = groups.map(g => {
+            const gd = data.filter(d => d.groupName === g);
+            return { name: g, ab: getAvgAb(gd) };
+        });
+        
+        const topGroup = [...groupStats].sort((a, b) => a.ab - b.ab)[0];
+        if (topGroup) {
+            insights.push({
+                type: "blue",
+                icon: "🏆",
+                title: "Célula Destacada",
+                msg: `El grupo "${topGroup.name}" mantiene la tasa de abandono más baja del año (${topGroup.ab.toFixed(1)}%).`,
+                value: topGroup.name
+            });
+        }
+
+        // 4. Operador de Mayor Productividad
+        const ops = [...new Set(data.map(d => d.normName))];
+        const opStats = ops.map(id => {
+            const od = data.filter(d => d.normName === id);
+            const totalC = od.reduce((s, v) => s + (v.c || 0), 0);
+            const totalH = od.reduce((s, v) => s + (v.totalConectado || 0), 0) / 3600;
+            return { name: od[0]?.name, prod: totalH > 1 ? totalC / totalH : 0 };
+        }).filter(o => o.prod > 0);
+        
+        const bestOp = [...opStats].sort((a, b) => b.prod - a.prod)[0];
+        if (bestOp) {
+            insights.push({
+                type: "green",
+                icon: "⚡",
+                title: "Máxima Productividad",
+                msg: `El operador "${bestOp.name}" lidera el año con un promedio de ${bestOp.prod.toFixed(1)} atendidas/hora.`,
+                value: bestOp.prod.toFixed(1)
+            });
+        }
+
+        // 5. Volumen
+        const totalCalls = data.reduce((s, v) => s + (v.c || 0), 0);
+        insights.push({
+            type: "blue",
+            icon: "📞",
+            title: "Volumen Anual",
+            msg: `Se han procesado ${totalCalls.toLocaleString("es-AR")} llamadas en lo que va del año ${year}.`,
+            value: totalCalls.toLocaleString("es-AR")
+        });
+
+        return insights;
+    } catch (e) {
+        console.error("Error global insights:", e);
+        return [];
+    }
+}
+
 async function getPerformanceByGroup(month, year) {
     const [perf, staff] = await Promise.all([
         getOperatorPerformance(month, year),
@@ -3689,6 +3793,46 @@ function ViewGestorPersonal({ user, onBack }) {
     );
 }
 
+// ─── Panel de Hallazgos Globales ──────────────────────────────────────────
+function PanelGlobalInsights({ user }) {
+    const [insights, setInsights] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!user) { setLoading(false); return; }
+        getGlobalInsights().then(res => {
+            setInsights(res);
+            setLoading(false);
+        });
+    }, [user]);
+
+    if (loading) return React.createElement("div", { style: { padding: "24px", textAlign: "center", color: C.gray, fontSize: 13, background: "#f8fafc", borderRadius: 12, border: `1px dashed ${C.border}`, marginBottom: 30 } }, "Analizando tendencias globales…");
+    if (!insights.length) return null;
+
+    return React.createElement("div", { className: "animate-fade", style: { marginBottom: 36 } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 14 } },
+            React.createElement("span", { style: { fontSize: 18 } }, "💡"),
+            React.createElement("h3", { style: { margin: 0, fontSize: 14, fontWeight: 800, color: C.navy, textTransform: "uppercase", letterSpacing: "1px" } }, "Hallazgos Estratégicos")
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 } },
+            insights.map((ins, i) => {
+                const color = ins.type === "red" ? C.red : ins.type === "green" ? C.green : ins.type === "orange" ? C.orange : C.blue;
+                const bg = ins.type === "red" ? C.redBg : ins.type === "green" ? C.greenBg : ins.type === "orange" ? C.orBg : C.light;
+                
+                return React.createElement("div", { key: i, style: { background: "#fff", borderLeft: `5px solid ${color}`, borderRadius: 12, padding: "14px 18px", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", display: "flex", gap: 14, alignItems: "center" } },
+                    React.createElement("div", { style: { width: 40, height: 40, borderRadius: "10px", background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 } }, ins.icon),
+                    React.createElement("div", { style: { flex: 1 } },
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase", marginBottom: 3 } }, ins.title),
+                        React.createElement("div", { style: { fontSize: 12.5, color: C.navy, fontWeight: 700, lineHeight: 1.4 } }, ins.msg)
+                    ),
+                    React.createElement("div", { style: { textAlign: "right", minWidth: 70 } },
+                        React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: color } }, ins.value)
+                    )
+                );
+            })
+        )
+    );
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
@@ -3927,8 +4071,10 @@ function App() {
                     )
                 ),
 
+                React.createElement(PanelGlobalInsights, { user }),
+
                 // ── SECCIÓN ACCESOS RÁPIDOS ──────────────────────────────────
-                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20 } },
+                React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 } },
                     React.createElement(Card, {
                         onClick: () => setView("operadores_analisis"),
                         style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center" },
@@ -3976,6 +4122,18 @@ function App() {
                             React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Historial de Reportes"),
                             React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Consultar informes guardados")
                         )
+                    ),
+                    React.createElement(Card, {
+                        onClick: () => setView("personal"),
+                        style: { cursor: "pointer", transition: "all .2s", padding: "20px 24px", display: "flex", gap: 16, alignItems: "center", borderTop: `4px solid ${C.orange}` },
+                        onMouseOver: e => e.currentTarget.style.transform = "translateY(-4px)",
+                        onMouseOut: e => e.currentTarget.style.transform = "none"
+                    },
+                        React.createElement("div", { style: { fontSize: 32 } }, "⚙️"),
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, "Gestión Personal"),
+                            React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 2 } }, "Configurar grupos y turnos")
+                        )
                     )
                 )
             ),
@@ -3983,7 +4141,21 @@ function App() {
             view === "resumen" && React.createElement(ViewResumen, { data: files }),
             view === "mensual" && React.createElement(ViewMensual, { user, onBack: () => setView("upload") }),
             view === "comparativa_grupos" && React.createElement(ViewComparativaGrupos, { user, onBack: () => setView("upload") }),
-            view === "historial" && React.createElement(ViewHistorial, { user, onBack: () => setView("upload"), onLoadReport: (rep) => { setFiles(rep.datos || {}); setLoaded(Object.keys(rep.datos || {}).filter(k => rep.datos[k] && (Array.isArray(rep.datos[k]) ? rep.datos[k].length > 0 : true))); setView("resumen"); } }),
+            view === "historial" && React.createElement(ViewHistorial, { 
+                user, 
+                onBack: () => setView("upload"), 
+                onLoadReport: (rep) => { 
+                    setFiles(rep.datos || {}); 
+                    const types = [];
+                    if (rep.datos?.agentes?.length) types.push("agentes");
+                    if (rep.datos?.abandonadas?.length) types.push("abandonadas");
+                    if (rep.datos?.despachoInicio?.length) types.push("despacho-inicio");
+                    if (rep.datos?.despachoDerivacion?.length) types.push("despacho-derivacion");
+                    if (rep.datos?.despachoCreacion?.length) types.push("despacho-creacion");
+                    setLoaded(types); 
+                    setView("resumen"); 
+                } 
+            }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
             view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
