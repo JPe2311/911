@@ -44,7 +44,7 @@ function parseTimeToSeconds(str) {
     if (!str || typeof str !== "string") return 0;
     str = str.trim().toLowerCase();
     let total = 0;
-    
+
     // Check for HH:MM:SS or MM:SS format
     const parts = str.split(":").map(p => parseInt(p, 10));
     if (parts.length === 3 && parts.every(p => !isNaN(p))) {
@@ -58,10 +58,10 @@ function parseTimeToSeconds(str) {
     const s = str.match(/(\d+)\s*s/i);
     if (m) total += parseInt(m[1], 10) * 60;
     if (s) total += parseInt(s[1], 10);
-    
+
     // If nothing matched, try parsing as raw number
     if (total === 0 && !isNaN(parseInt(str))) total = parseInt(str);
-    
+
     return total;
 }
 
@@ -612,12 +612,29 @@ async function updateStaffTurno(normName, newTurno) {
     await updateDoc(doc(db, "staff", normName), { turno: newTurno });
 }
 
+async function updateStaffGroup(normName, newGroup) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "staff", normName), { grupo: newGroup }, { merge: true });
+}
+
+async function getGroups() {
+    const db = getDB();
+    if (!db) return [];
+    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDocs(collection(db, "staff"));
+    const groups = new Set();
+    snap.docs.forEach(d => { const g = d.data().grupo; if (g) groups.add(g); });
+    return Array.from(groups).sort();
+}
+
 async function saveOperatorPerformance(list, month, year) {
     const db = getDB();
     if (!db) return;
     const { doc, setDoc, query, where, getDocs, collection, writeBatch } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const perfRef = collection(db, "operator_performance");
-    
+
     try {
         // 1. Limpiar datos previos del mismo mes/año para evitar "fantasmas"
         const q = query(perfRef, where("month", "==", month), where("year", "==", year));
@@ -664,7 +681,7 @@ async function getOperatorHistory(normName, year) {
     if (!db) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const q = query(
-        collection(db, "operator_performance"), 
+        collection(db, "operator_performance"),
         where("normName", "==", normName),
         where("year", "==", year),
         orderBy("month", "asc")
@@ -695,7 +712,7 @@ async function getGroupAverages(year) {
     const q = query(collection(db, "operator_performance"), where("year", "==", year));
     const snap = await getDocs(q);
     const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
-    
+
     snap.docs.forEach(d => {
         const p = d.data();
         const m = p.month;
@@ -835,12 +852,23 @@ function ChartLine({ id, data, options }) {
     return React.createElement("canvas", { ref, id });
 }
 
-function ChartScatter({ id, data, options }) {
+function ChartScatter({ id, data, options, onPointClick }) {
     const ref = useRef(null); const chartRef = useRef(null);
     useEffect(() => {
         if (!ref.current) return;
         if (chartRef.current) chartRef.current.destroy();
-        chartRef.current = new Chart(ref.current, { type: "scatter", data, options });
+        const finalOptions = onPointClick ? {
+            ...options,
+            onClick: (event, elements) => {
+                if (elements && elements.length > 0) {
+                    onPointClick(elements[0].index, elements[0].datasetIndex);
+                }
+            },
+            onHover: (event, elements) => {
+                event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+            }
+        } : options;
+        chartRef.current = new Chart(ref.current, { type: "scatter", data, options: finalOptions });
         return () => { if (chartRef.current) chartRef.current.destroy(); };
     }, [JSON.stringify(data)]);
     return React.createElement("canvas", { ref, id });
@@ -1799,13 +1827,13 @@ function ViewMensual({ user }) {
         target.forEach(h => {
             if (!h) return;
             const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            if (!rows || !rows.length) { 
+            if (!rows || !rows.length) {
                 if (h.resumen) {
-                    tO += h.resumen.totalOfrecidas || 0; 
-                    tC += h.resumen.totalContestadas || 0; 
-                    tA += h.resumen.totalAbandonadas || 0; 
+                    tO += h.resumen.totalOfrecidas || 0;
+                    tC += h.resumen.totalContestadas || 0;
+                    tA += h.resumen.totalAbandonadas || 0;
                 }
-                return; 
+                return;
             }
             rows.forEach(r => {
                 if (!r) return;
@@ -1973,22 +2001,22 @@ function ViewMensual({ user }) {
         if (!target.length) return null;
 
         const byDay = { 0: { o: 0, c: 0, ab: 0, count: 0 }, 1: { o: 0, c: 0, ab: 0, count: 0 }, 2: { o: 0, c: 0, ab: 0, count: 0 }, 3: { o: 0, c: 0, ab: 0, count: 0 }, 4: { o: 0, c: 0, ab: 0, count: 0 }, 5: { o: 0, c: 0, ab: 0, count: 0 }, 6: { o: 0, c: 0, ab: 0, count: 0 } };
-        
+
         target.forEach(h => {
             const rows = filterDetailsByTurno(h.detalles, filterTurno);
             if (!rows || !rows.length) return;
-            
+
             const daysSeen = new Set();
             rows.forEach(r => {
                 if (!r || r.d === undefined) return;
                 const dt = new Date(h.meta.year, h.meta.monthNum - 1, r.d);
-                const dow = dt.getDay(); 
+                const dow = dt.getDay();
                 byDay[dow].o += r.o || 0;
                 byDay[dow].c += r.c || 0;
                 byDay[dow].ab += r.ab || 0;
                 daysSeen.add(`${dow}-${r.d}`);
             });
-            
+
             const monthDows = {};
             daysSeen.forEach(s => {
                 const dow = s.split("-")[0];
@@ -2023,10 +2051,10 @@ function ViewMensual({ user }) {
             if (!h.detalles || !Array.isArray(h.detalles)) return;
             h.detalles.forEach(r => {
                 if (!r || r.hour === undefined) return;
-                if (r.hour >= 7 && r.hour < 19) { 
-                    diaO += r.o || 0; diaC += r.c || 0; diaA += r.ab || 0; 
-                } else { 
-                    nocO += r.o || 0; nocC += r.c || 0; nocA += r.ab || 0; 
+                if (r.hour >= 7 && r.hour < 19) {
+                    diaO += r.o || 0; diaC += r.c || 0; diaA += r.ab || 0;
+                } else {
+                    nocO += r.o || 0; nocC += r.c || 0; nocA += r.ab || 0;
                 }
             });
         });
@@ -2375,11 +2403,11 @@ function ViewMensual({ user }) {
                     (() => {
                         const sortedByAb = [...monthlyCompData].sort((a, b) => b.pctAb - a.pctAb);
                         const maxAbd = Math.max(...monthlyCompData.map(m => m.promAbandDiario), 1);
-                        
+
                         return sortedByAb.map((m, i) => {
                             const barColor = m.pctAb > 25 ? C.red : m.pctAb > 15 ? C.orange : C.green;
                             const bgAlpha = m.pctAb > 25 ? "rgba(220,38,38,0.1)" : m.pctAb > 15 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)";
-                            
+
                             return React.createElement("div", { key: m.firestoreId, style: { display: "grid", gridTemplateColumns: "140px 1fr 100px", alignItems: "center", gap: 15, padding: "8px 12px", borderRadius: 10, background: i === 0 && m.pctAb > 25 ? "rgba(220,38,38,0.03)" : "transparent" } },
                                 // Month Label
                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
@@ -2598,17 +2626,17 @@ function ViewMensual({ user }) {
                             const rows = filterDetailsByTurno(h.detalles, filterTurno);
                             let rO, rC, rA, rEC, rAV, rM;
                             if (rows && rows.length) {
-                                rO = rows.reduce((s, r) => s + (r?.o || 0), 0); 
+                                rO = rows.reduce((s, r) => s + (r?.o || 0), 0);
                                 rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
-                                rA = rows.reduce((s, r) => s + (r?.ab || 0), 0); 
+                                rA = rows.reduce((s, r) => s + (r?.ab || 0), 0);
                                 rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
                                 rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
                                 const mRows = rows.filter(r => r && r.manejo);
                                 rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
                             } else if (h.resumen) {
-                                rO = h.resumen.totalOfrecidas || 0; 
-                                rC = h.resumen.totalContestadas || 0; 
-                                rA = h.resumen.totalAbandonadas || 0; 
+                                rO = h.resumen.totalOfrecidas || 0;
+                                rC = h.resumen.totalContestadas || 0;
+                                rA = h.resumen.totalAbandonadas || 0;
                                 rEC = 0; rAV = 0; rM = 0;
                             } else {
                                 rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
@@ -2734,14 +2762,25 @@ function MensualHeatmap({ report, turnoFilter }) {
 function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const [perf, setPerf] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [expanded, setExpanded] = useState(null); // normName of expanded agent
-    const [history, setHistory] = useState([]); // history of expanded agent
+    const [expanded, setExpanded] = useState(null);
+    const [history, setHistory] = useState([]);
     const [filter, setFilter] = useState({ month: (new Date().getMonth() + 1).toString().padStart(2, "0"), year: new Date().getFullYear().toString() });
+    const [groupFilter, setGroupFilter] = useState("all");
+    const [staffMap, setStaffMap] = useState({});
+    const [availableGroups, setAvailableGroups] = useState([]);
 
     const loadData = async () => {
         setLoading(true);
-        const pList = await getOperatorPerformance(filter.month, filter.year);
+        const [pList, staff] = await Promise.all([
+            getOperatorPerformance(filter.month, filter.year),
+            getStaffList()
+        ]);
         setPerf(pList);
+        const map = {};
+        staff.forEach(s => { map[s.normName] = s; });
+        setStaffMap(map);
+        const groups = [...new Set(staff.map(s => s.grupo).filter(Boolean))].sort();
+        setAvailableGroups(groups);
         setLoading(false);
     };
 
@@ -2770,23 +2809,29 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
         return perf.map(p => {
             const hours = (p.totalConectado / 3600) || 1;
             const coefProd = p.c / hours;
-
             return {
                 ...p,
+                grupo: staffMap[p.normName]?.grupo || "",
                 coefProd: coefProd.toFixed(1),
                 scoreQuality: (p.pctProd).toFixed(1),
             };
         }).sort((a, b) => b.c - a.c);
-    }, [perf]);
+    }, [perf, staffMap]);
+
+    const filteredCombined = useMemo(() => {
+        if (groupFilter === "all") return combined;
+        return combined.filter(p => p.grupo === groupFilter);
+    }, [combined, groupFilter]);
 
     const stats = useMemo(() => {
-        if (!combined.length) return null;
+        if (!filteredCombined.length) return null;
         return {
-            totalC: combined.reduce((s, x) => s + x.c, 0),
-            avgProd: (combined.reduce((s, x) => s + parseFloat(x.coefProd), 0) / combined.length).toFixed(1),
-            avgQual: (combined.reduce((s, x) => s + parseFloat(x.scoreQuality), 0) / combined.length).toFixed(1)
+            totalC: filteredCombined.reduce((s, x) => s + x.c, 0),
+            avgProd: (filteredCombined.reduce((s, x) => s + parseFloat(x.coefProd), 0) / filteredCombined.length).toFixed(1),
+            avgQual: (filteredCombined.reduce((s, x) => s + parseFloat(x.scoreQuality), 0) / filteredCombined.length).toFixed(1)
         };
-    }, [combined]);
+    }, [filteredCombined]);
+
 
     return React.createElement("div", { className: "animate-fade" },
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
@@ -2797,7 +2842,15 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                     React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Métricas de productividad y calidad mensual por operador")
                 )
             ),
-            React.createElement("div", { style: { display: "flex", gap: 12 } },
+            React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center" } },
+                availableGroups.length > 0 && React.createElement("select", {
+                    value: groupFilter,
+                    onChange: e => setGroupFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todos los Grupos"),
+                    availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+                ),
                 React.createElement("select", {
                     value: filter.month,
                     onChange: e => setFilter({ ...filter, month: e.target.value }),
@@ -2953,122 +3006,124 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                 ),
                 React.createElement("tbody", null,
                     loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargando métricas...")) :
-                    combined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período. Cargá el reporte de OPERADORES.")) :
-                    combined.map((p, i) => (
-                        React.createElement(React.Fragment, { key: p.normName },
-                            React.createElement("tr", { 
-                                onClick: () => setExpanded(expanded === p.normName ? null : p.normName),
-                                style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa", transition: "all .1s", cursor: "pointer" },
-                                className: "hover-row"
-                            },
-                                React.createElement("td", { style: { padding: "14px 20px" } },
-                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                                        React.createElement("span", { style: { color: C.blue, fontSize: 10 } }, expanded === p.normName ? "▼" : "▶"),
-                                        React.createElement("div", { 
-                                            onClick: (e) => { e.stopPropagation(); navigateToProfile(p.normName); },
-                                            style: { fontWeight: 800, color: C.blue, fontSize: 13, textDecoration: "underline" } 
-                                        }, p.name)
-                                    )
-                                ),
-                                React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
-                                React.createElement("td", { style: { padding: "14px 20px" } },
-                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                                        React.createElement("span", { style: { fontWeight: 900, fontSize: 14, color: C.blue, width: 35 } }, p.coefProd),
-                                        React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue })
-                                    )
-                                ),
-                                React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 700 } }, `${p.pctProd}%`),
-                                React.createElement("td", { style: { padding: "14px 20px" } },
-                                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                                        React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
-                                        React.createElement(MiniBar, { pct: parseFloat(p.scoreQuality), color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange })
-                                    )
-                                )
-                            ),
-                            expanded === p.normName && React.createElement("tr", { style: { background: "#f8fafc" } },
-                                React.createElement("td", { colSpan: 5, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
-                                    React.createElement("div", { className: "animate-slide-down" },
-                                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 24 } },
-                                            // Col 1: Distribución
-                                            React.createElement("div", null,
-                                                React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "📊 Volumen de Llamadas"),
-                                                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-                                                    React.createElement(RowStat, { label: "Ofrecidas", value: p.o, color: C.navy }),
-                                                    React.createElement(RowStat, { label: "Contestadas", value: p.c, color: C.green }),
-                                                    React.createElement(RowStat, { label: "Abandonadas", value: p.ab, color: C.red })
-                                                )
-                                            ),
-                                            // Col 2: Tiempos
-                                            React.createElement("div", null,
-                                                React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "⏱ Tiempos Promedio"),
-                                                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-                                                    React.createElement(RowStat, { label: "Prom. Avisando", value: fmtSeconds(p.avgAvisando), color: C.blue }),
-                                                    React.createElement(RowStat, { label: "Prom. Manejo", value: fmtSeconds(p.avgManejo), color: C.mid })
-                                                )
-                                            ),
-                                            // Col 3: Conexión
-                                            React.createElement("div", null,
-                                                React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "🔌 Estado de Conexión"),
-                                                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-                                                    React.createElement(RowStat, { label: "Total Conectado", value: fmtSeconds(p.totalConectado), color: C.navy }),
-                                                    React.createElement(RowStat, { label: "Voz Preparada", value: `${p.pctProd}%`, color: C.green }),
-                                                    React.createElement(RowStat, { label: "Voz No Prep.", value: `${p.pctNoProd}%`, color: C.orange })
-                                                )
+                        combined.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 6, style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay datos para este período. Cargá el reporte de OPERADORES.")) :
+                            combined.map((p, i) => (
+                                React.createElement(React.Fragment, { key: p.normName },
+                                    React.createElement("tr", {
+                                        onClick: () => setExpanded(expanded === p.normName ? null : p.normName),
+                                        style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa", transition: "all .1s", cursor: "pointer" },
+                                        className: "hover-row"
+                                    },
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                                                React.createElement("span", { style: { color: C.blue, fontSize: 10 } }, expanded === p.normName ? "▼" : "▶"),
+                                                React.createElement("div", {
+                                                    onClick: (e) => { e.stopPropagation(); navigateToProfile(p.normName); },
+                                                    style: { fontWeight: 800, color: C.blue, fontSize: 13, textDecoration: "underline" }
+                                                }, p.name)
                                             )
                                         ),
-
-                                        // ── SECCIÓN COMPARATIVA (NUEVA) ──────────────────────────
-                                        history.length > 1 && React.createElement("div", { style: { paddingTop: 24, borderTop: `1px dashed ${C.border}` } },
-                                            React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, marginBottom: 16 } }, `📈 Evolución Anual: ${p.name}`),
-                                            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 24 } },
-                                                // Gráfico de Tendencia
-                                                React.createElement("div", { style: { background: "#fff", padding: 16, borderRadius: 12, border: `1px solid ${C.border}`, height: 220 } },
-                                                    React.createElement(ChartLine, {
-                                                        id: `trend-${p.normName}`,
-                                                        data: {
-                                                            labels: history.map(h => `Mes ${h.month}`),
-                                                            datasets: [{
-                                                                label: "% Voz Preparada",
-                                                                data: history.map(h => h.pctProd),
-                                                                borderColor: C.green,
-                                                                backgroundColor: "rgba(34,197,94,0.1)",
-                                                                tension: 0.3,
-                                                                fill: true,
-                                                                pointRadius: 4,
-                                                                pointBackgroundColor: C.green
-                                                            }]
-                                                        },
-                                                        options: {
-                                                            responsive: true, maintainAspectRatio: false,
-                                                            plugins: { legend: { display: false } },
-                                                            scales: { 
-                                                                y: { min: 0, max: 100, ticks: { callback: v => `${v}%`, font: { size: 9 } } },
-                                                                x: { ticks: { font: { size: 9 } } }
-                                                            }
-                                                        }
-                                                    })
+                                        React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                                React.createElement("span", { style: { fontWeight: 900, fontSize: 14, color: C.blue, width: 35 } }, p.coefProd),
+                                                React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue })
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 700 } }, `${p.pctProd}%`),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                                React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
+                                                React.createElement(MiniBar, { pct: parseFloat(p.scoreQuality), color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange })
+                                            )
+                                        )
+                                    ),
+                                    expanded === p.normName && React.createElement("tr", { style: { background: "#f8fafc" } },
+                                        React.createElement("td", { colSpan: 5, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
+                                            React.createElement("div", { className: "animate-slide-down" },
+                                                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 24 } },
+                                                    // Col 1: Distribución
+                                                    React.createElement("div", null,
+                                                        React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "📊 Volumen de Llamadas"),
+                                                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                                                            React.createElement(RowStat, { label: "Ofrecidas", value: p.o, color: C.navy }),
+                                                            React.createElement(RowStat, { label: "Contestadas", value: p.c, color: C.green }),
+                                                            React.createElement(RowStat, { label: "Abandonadas", value: p.ab, color: C.red })
+                                                        )
+                                                    ),
+                                                    // Col 2: Tiempos
+                                                    React.createElement("div", null,
+                                                        React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "⏱ Tiempos Promedio"),
+                                                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                                                            React.createElement(RowStat, { label: "Prom. Avisando", value: fmtSeconds(p.avgAvisando), color: C.blue }),
+                                                            React.createElement(RowStat, { label: "Prom. Manejo", value: fmtSeconds(p.avgManejo), color: C.mid })
+                                                        )
+                                                    ),
+                                                    // Col 3: Conexión
+                                                    React.createElement("div", null,
+                                                        React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.gray, textTransform: "uppercase", marginBottom: 12 } }, "🔌 Estado de Conexión"),
+                                                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                                                            React.createElement(RowStat, { label: "Total Conectado", value: fmtSeconds(p.totalConectado), color: C.navy }),
+                                                            React.createElement(RowStat, { label: "Voz Preparada", value: `${p.pctProd}%`, color: C.green }),
+                                                            React.createElement(RowStat, { label: "Voz No Prep.", value: `${p.pctNoProd}%`, color: C.orange })
+                                                        )
+                                                    )
                                                 ),
-                                                // Tabla Histórica
-                                                React.createElement("div", null,
-                                                    React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
-                                                        React.createElement("thead", null,
-                                                            React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                                                                ["Mes", "Cont.", "At/Hr", "% Voz"].map(h => 
-                                                                    React.createElement("th", { key: h, style: { padding: "8px 10px", fontWeight: 800, color: C.gray } }, h)
+
+                                                // ── SECCIÓN COMPARATIVA (NUEVA) ──────────────────────────
+                                                history.length > 1 && React.createElement("div", { style: { paddingTop: 24, borderTop: `1px dashed ${C.border}` } },
+                                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, marginBottom: 16 } }, `📈 Evolución Anual: ${p.name}`),
+                                                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 24 } },
+                                                        // Gráfico de Tendencia
+                                                        React.createElement("div", { style: { background: "#fff", padding: 16, borderRadius: 12, border: `1px solid ${C.border}`, height: 220 } },
+                                                            React.createElement(ChartLine, {
+                                                                id: `trend-${p.normName}`,
+                                                                data: {
+                                                                    labels: history.map(h => `Mes ${h.month}`),
+                                                                    datasets: [{
+                                                                        label: "% Voz Preparada",
+                                                                        data: history.map(h => h.pctProd),
+                                                                        borderColor: C.green,
+                                                                        backgroundColor: "rgba(34,197,94,0.1)",
+                                                                        tension: 0.3,
+                                                                        fill: true,
+                                                                        pointRadius: 4,
+                                                                        pointBackgroundColor: C.green
+                                                                    }]
+                                                                },
+                                                                options: {
+                                                                    responsive: true, maintainAspectRatio: false,
+                                                                    plugins: { legend: { display: false } },
+                                                                    scales: {
+                                                                        y: { min: 0, max: 100, ticks: { callback: v => `${v}%`, font: { size: 9 } } },
+                                                                        x: { ticks: { font: { size: 9 } } }
+                                                                    }
+                                                                }
+                                                            })
+                                                        ),
+                                                        // Tabla Histórica
+                                                        React.createElement("div", null,
+                                                            React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 11 } },
+                                                                React.createElement("thead", null,
+                                                                    React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
+                                                                        ["Mes", "Cont.", "At/Hr", "% Voz"].map(h =>
+                                                                            React.createElement("th", { key: h, style: { padding: "8px 10px", fontWeight: 800, color: C.gray } }, h)
+                                                                        )
+                                                                    )
+                                                                ),
+                                                                React.createElement("tbody", null,
+                                                                    history.map(h => {
+                                                                        const hours = (h.totalConectado / 3600) || 1;
+                                                                        const coef = (h.c / hours).toFixed(1);
+                                                                        return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}` } },
+                                                                            React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700 } }, h.month),
+                                                                            React.createElement("td", { style: { padding: "8px 10px" } }, h.c),
+                                                                            React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.blue } }, coef),
+                                                                            React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.green } }, `${h.pctProd}%`)
+                                                                        );
+                                                                    })
                                                                 )
                                                             )
-                                                        ),
-                                                        React.createElement("tbody", null,
-                                                            history.map(h => {
-                                                                const hours = (h.totalConectado / 3600) || 1;
-                                                                const coef = (h.c / hours).toFixed(1);
-                                                                return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}` } },
-                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700 } }, h.month),
-                                                                    React.createElement("td", { style: { padding: "8px 10px" } }, h.c),
-                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.blue } }, coef),
-                                                                    React.createElement("td", { style: { padding: "8px 10px", fontWeight: 700, color: C.green } }, `${h.pctProd}%`)
-                                                                );
-                                                            })
                                                         )
                                                     )
                                                 )
@@ -3076,9 +3131,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                         )
                                     )
                                 )
-                            )
-                        )
-                    ))
+                            ))
                 )
             )
         )
@@ -3126,7 +3179,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     const chartData = useMemo(() => {
         if (!history.length) return null;
         const labels = history.map(h => MONTH_NAMES[h.month] || h.month);
-        
+
         return {
             volume: {
                 labels,
@@ -3182,7 +3235,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
         ),
 
         !selectedAgent && React.createElement(Card, { style: { textAlign: "center", padding: 60, color: C.gray } }, "Seleccioná un operador para ver sus dashboards."),
-        
+
         selectedAgent && loading && React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando trayectoria…"),
 
         selectedAgent && !loading && history.length === 0 && React.createElement(Card, { style: { textAlign: "center", padding: 60, color: C.gray } }, "No hay datos registrados para este operador en el año seleccionado."),
@@ -3218,7 +3271,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Mes", "Contestadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h => 
+                            ["Mes", "Contestadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
@@ -3254,6 +3307,161 @@ function RowStat({ label, value, color }) {
         React.createElement("span", { style: { fontSize: 13, fontWeight: 900, color } }, value)
     );
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VIEW: GESTOR DE PERSONAL (Grupos)
+// ════════════════════════════════════════════════════════════════════════════
+function ViewGestorPersonal({ user, onBack }) {
+    const [staff, setStaff] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(null); // normName being saved
+    const [searchTerm, setSearchTerm] = useState("");
+
+    const loadStaff = async () => {
+        setLoading(true);
+        const [registered, performance] = await Promise.all([
+            getStaffList(),
+            getUniqueOperators()
+        ]);
+
+        // Merge sources: ensure all unique operators seen in performance reports are listed
+        const masterList = [...registered];
+        performance.forEach(op => {
+            if (!masterList.find(s => s.normName === op.normName)) {
+                masterList.push({ ...op, turno: "—", grupo: "" });
+            }
+        });
+
+        setStaff(masterList.sort((a, b) => a.name.localeCompare(b.name)));
+        setLoading(false);
+    };
+
+    useEffect(() => { loadStaff(); }, []);
+
+    const handleUpdateGroup = async (normName, group) => {
+        setSaving(normName);
+        await updateStaffGroup(normName, group);
+        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, grupo: group } : s));
+        setSaving(null);
+    };
+
+    const handleUpdateName = async (normName, newName) => {
+        setSaving(normName);
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            await setDoc(doc(db, "staff", normName), { name: newName }, { merge: true });
+            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, name: newName } : s));
+        }
+        setSaving(null);
+    };
+
+    const filteredStaff = staff.filter(s =>
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.grupo || "").toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const groupCounts = useMemo(() => {
+        const counts = {};
+        staff.forEach(s => {
+            if (s.grupo) counts[s.grupo] = (counts[s.grupo] || 0) + 1;
+        });
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    }, [staff]);
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+                React.createElement("div", null,
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Gestión de Personal"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Asignación de grupos y organización de operadores")
+                )
+            ),
+            React.createElement("div", { style: { position: "relative" } },
+                React.createElement("input", {
+                    type: "text",
+                    placeholder: "Buscar por nombre o grupo...",
+                    value: searchTerm,
+                    onChange: e => setSearchTerm(e.target.value),
+                    style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 280, color: C.navy }
+                }),
+                React.createElement("span", { style: { position: "absolute", left: 14, top: 11, fontSize: 16 } }, "🔍")
+            )
+        ),
+
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, alignItems: "start" } },
+            // Table
+            React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                    React.createElement("thead", null,
+                        React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
+                            ["Operador", "Turno", "Grupo / Célula"].map(h =>
+                                React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
+                            )
+                        )
+                    ),
+                    React.createElement("tbody", null,
+                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
+                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
+                                filteredStaff.map((s, i) => (
+                                    React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                                                (saving === s.normName) && React.createElement("span", { className: "animate-spin", style: { fontSize: 12 } }, "⏳"),
+                                                React.createElement("input", {
+                                                    defaultValue: s.name,
+                                                    onBlur: e => e.target.value !== s.name && handleUpdateName(s.normName, e.target.value),
+                                                    style: { border: "none", background: "transparent", fontWeight: 800, color: C.navy, fontSize: 14, padding: "4px 0", width: "100%" }
+                                                })
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: s.turno || "—", color: C.gray, bg: "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("input", {
+                                                type: "text",
+                                                placeholder: "Sin grupo (Ej: Alpha-1)...",
+                                                defaultValue: s.grupo || "",
+                                                onBlur: e => e.target.value !== (s.grupo || "") && handleUpdateGroup(s.normName, e.target.value),
+                                                style: {
+                                                    padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                                                    fontSize: 13, background: s.grupo ? "rgba(46,95,163,0.05)" : "#fff",
+                                                    fontWeight: s.grupo ? 700 : 400, color: s.grupo ? C.mid : C.gray,
+                                                    width: "100%", outline: "none"
+                                                }
+                                            })
+                                        )
+                                    )
+                                ))
+                    )
+                )
+            ),
+
+            // Sidebar: Grupos
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+                React.createElement(Card, null,
+                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 16, fontSize: 14 } }, "🏢 Grupos Detectados"),
+                    groupCounts.length === 0 ? React.createElement("div", { style: { fontSize: 12, color: C.gray, textAlign: "center", padding: "10px 0" } }, "No hay grupos asignados") :
+                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
+                            groupCounts.map(([g, c]) =>
+                                React.createElement("div", { key: g, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 } },
+                                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: C.mid } }, g),
+                                    React.createElement("span", { style: { background: C.mid, color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 800 } }, c)
+                                )
+                            )
+                        )
+                ),
+                React.createElement("div", { style: { padding: "12px 16px", background: "#fffbeb", borderRadius: 12, border: `1px solid #fef3c7`, color: "#92400e", fontSize: 12, lineHeight: 1.5 } },
+                    React.createElement("div", { style: { fontWeight: 900, marginBottom: 4 } }, "💡 Sugerencia"),
+                    "Asigna nombres de grupos para habilitar filtros avanzados y comparativas por equipo en los paneles de análisis."
+                )
+            )
+        )
+    );
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
@@ -3397,6 +3605,7 @@ function App() {
         { id: "operadores_perfil", label: "👤 Perfil", avail: true },
         { id: "mensual", label: "📈 Mensual", avail: true },
         { id: "historial", label: "📋 Historial", avail: true },
+        { id: "personal", label: "👥 Personal", avail: true },
     ];
 
     return React.createElement("div", { style: { minHeight: "100vh", background: C.bg } },
@@ -3514,8 +3723,7 @@ function App() {
             view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
             view === "operadores_perfil" && React.createElement(ViewPerfilOperador, { user, initialAgent: profileAgent, onBack: () => { setProfileAgent(null); setView("upload"); } }),
             view === "despacho" && React.createElement(ViewDespacho, { data: files }),
-            view === "mensual" && React.createElement(ViewMensual, { user }),
-            view === "historial" && React.createElement(ViewHistorial, { user }),
+            view === "personal" && React.createElement(ViewGestorPersonal, { user, onBack: () => setView("upload") }),
         )
     );
 }
