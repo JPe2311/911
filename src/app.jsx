@@ -462,13 +462,11 @@ async function saveReportToFirestore(files, meta, user) {
             totalAbandonadas,
         },
         datos: {
-            agentes: agentesData?.agents || [],
-            abandonadas: abandonadasData?.intervals || [],
+            agentes: agentesData || null,
+            abandonadas: abandonadasData || null,
             despachoInicio,
             despachoDerivacion,
             despachoCreacion,
-            agentesResumen: agentesData?.meta || {},
-            abandonadasResumen: abandonadasData?.totals || {},
         },
     };
 
@@ -937,13 +935,11 @@ function saveLocalReport(files, meta) {
             turno: { fecha: fullMeta.fechaDesde || "", horaDesde: fullMeta.horaDesde || "", horaHasta: fullMeta.horaHasta || "" },
             resumen: { totalOfrecidas, totalContestadas, totalAbandonadas },
             datos: {
-                agentes: agentesData?.agents || [],
-                abandonadas: abandonadasData?.intervals || [],
+                agentes: agentesData || null,
+                abandonadas: abandonadasData || null,
                 despachoInicio: files?.despachoInicio || [],
                 despachoDerivacion: files?.despachoDerivacion || [],
                 despachoCreacion: files?.despachoCreacion || [],
-                agentesResumen: agentesData?.meta || {},
-                abandonadasResumen: abandonadasData?.totals || {},
             },
         };
         history.push(report);
@@ -4399,13 +4395,24 @@ function App() {
                 user, 
                 onBack: () => setView("upload"), 
                 onLoadReport: (rep) => { 
-                    setFiles(rep.datos || {}); 
+                    const raw = rep.datos || {};
+                    const normalized = { ...raw };
+
+                    // Compatibilidad con reportes viejos (datos aplanados)
+                    if (Array.isArray(raw.agentes)) {
+                        normalized.agentes = { agents: raw.agentes, meta: raw.agentesResumen || {} };
+                    }
+                    if (Array.isArray(raw.abandonadas)) {
+                        normalized.abandonadas = { intervals: raw.abandonadas, totals: raw.abandonadasResumen || {}, meta: {} };
+                    }
+                    
+                    setFiles(normalized); 
                     const types = [];
-                    if (rep.datos?.agentes?.length) types.push("agentes");
-                    if (rep.datos?.abandonadas?.length) types.push("abandonadas");
-                    if (rep.datos?.despachoInicio?.length) types.push("despacho-inicio");
-                    if (rep.datos?.despachoDerivacion?.length) types.push("despacho-derivacion");
-                    if (rep.datos?.despachoCreacion?.length) types.push("despacho-creacion");
+                    if (normalized.agentes?.agents?.length) types.push("agentes");
+                    if (normalized.abandonadas?.intervals?.length) types.push("abandonadas");
+                    if (normalized.despachoInicio?.length) types.push("despacho-inicio");
+                    if (normalized.despachoDerivacion?.length) types.push("despacho-derivacion");
+                    if (normalized.despachoCreacion?.length) types.push("despacho-creacion");
                     setLoaded(types); 
                     setView("reporte_historial"); 
                 } 
