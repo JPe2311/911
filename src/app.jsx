@@ -3850,10 +3850,12 @@ function ViewGestorPersonal({ user, onBack }) {
         setSaving(null);
     };
 
-    const filteredStaff = staff.filter(s =>
-        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (s.grupo || "").toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredStaff = staff.filter(s => {
+        const n = (s.name || "").toLowerCase();
+        const g = (s.grupo || "").toLowerCase();
+        const sc = (searchTerm || "").toLowerCase();
+        return n.includes(sc) || g.includes(sc);
+    });
 
     const groupCounts = useMemo(() => {
         const counts = {};
