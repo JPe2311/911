@@ -476,6 +476,8 @@ async function saveReportToFirestore(files, meta, user) {
         const { addDoc, collection, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
         const docRef = await addDoc(collection(db, "informes"), {
             ...report,
+            userDisplayName,
+            userEmail,
             createdAt: serverTimestamp(),
         });
         console.log("✓ Informe guardado en Firestore:", docRef.id);
@@ -1165,7 +1167,7 @@ function ViewResumen({ data }) {
 
     const agentsRanking = useMemo(() => {
         if (!ag?.agents?.length) return { top: [], bot: [] };
-        let main = ag.agents.filter(a => a.ofrecidas >= 30);
+        let main = ag.agents.filter(a => a.ofrecidas >= 20);
         
         if (groupFilter !== "all") {
             main = main.filter(a => {
@@ -1176,157 +1178,123 @@ function ViewResumen({ data }) {
 
         main = main.sort((a, b) => b.contestadas - a.contestadas);
         return {
-            top: main.slice(0, 3),
-            bot: [...main].reverse().slice(0, 3),
-            total: main.length
+            top: main.slice(0, 5),
+            bot: [...main].reverse().slice(0, 5),
+            total: main.length,
+            avgManejo: Math.round(main.reduce((s, a) => s + (a.tiempoManejo || 0), 0) / (main.length || 1)),
+            avgPctVoz: (main.reduce((s, a) => s + (a.pctVozPreparada || 0), 0) / (main.length || 1)).toFixed(1)
         };
     }, [ag, groupFilter, staffMap]);
 
-    // Para gráficos generales usamos despacho-inicio como referencia principal
-    const dp = dpI?.length ? dpI : (dpD?.length ? dpD : dpC);
     const tot = ab?.totals || {};
     const pctAtend = tot.ofrecidas ? ((tot.contestadas / tot.ofrecidas) * 100) : 0;
     const pctAband = tot.ofrecidas ? ((tot.abandonadas / tot.ofrecidas) * 100) : 0;
     const meta = ab?.meta || ag?.meta || {};
-
-    const horaData = useMemo(() => {
-        if (!ab?.intervals?.length) return null;
-        const ivs = ab.intervals;
-        return {
-            labels: ivs.map(i => i.hora),
-            datasets: [
-                { label: "Atendidas", data: ivs.map(i => i.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6, order: 1 },
-                { label: "Abandonadas", data: ivs.map(i => i.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6, order: 1 },
-            ]
-        };
-    }, [ab]);
-
-    const abandonDonut = useMemo(() => {
-        if (!tot.abandonadas) return null;
-        return { labels: ["En Cola", "En Cabina"], datasets: [{ data: [tot.cola || 0, tot.cabina || 0], backgroundColor: ["#ea580c", "#eab308"], borderWidth: 0, hoverOffset: 4 }] };
-    }, [tot]);
-
-    const agentesData = useMemo(() => {
-        if (!ag?.agents?.length) return null;
-        const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas);
-        return { labels: main.map(a => a.nombre.split(",")[0]), datasets: [{ label: "Contestadas", data: main.map(a => a.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 }, { label: "Abandonadas", data: main.map(a => a.abandonadas), backgroundColor: "rgba(220,38,38,0.7)", borderRadius: 6 }] };
-    }, [ag]);
-
-    const despData = useMemo(() => {
-        if (!dp?.length) return null;
-        const sorted = [...dp].sort((a, b) => (a.tiempoSec || 0) - (b.tiempoSec || 0));
-        return {
-            labels: sorted.map(d => (d.nombre || "").replace("DISTRITO ", "D.")),
-            datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: sorted.map(d => (d.tiempoSec || 0) > 200 ? C.red : (d.tiempoSec || 0) < 40 ? C.green : C.mid) }]
-        };
-    }, [dp]);
 
     const gaugeData = useMemo(() => {
         const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
         const tI = avg((dpI || []).map(d => d.tiempoSec || 0));
         const tD = avg((dpD || []).map(d => d.tiempoSec || 0));
         const tC = avg((dpC || []).map(d => d.tiempoSec || 0));
-        if (!tI && !tD && !tC) return null;
         return { tiempoInicioDespacho: tI, tiempoDerivacionInicio: tD, tiempoCreacionDespacho: tC };
     }, [dpI, dpD, dpC]);
 
-    const donutOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, padding: 10 } } }, cutout: "65%" };
     const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde || ""} → ${meta.fechaHasta} ${meta.horaHasta || ""}` : "Período cargado";
 
-    return React.createElement("div", null,
-        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 14, padding: "28px 32px", marginBottom: 24, color: "#fff" } },
-            React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, "DCGyC — SAE 911"),
-            React.createElement("div", { style: { fontSize: 26, fontWeight: 900 } }, "Resumen del Turno"),
-            React.createElement("div", { style: { fontSize: 13, color: "#94a3b8", marginTop: 4 } }, turnoLabel)
-        ),
-        React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 } },
-            tot.ofrecidas && React.createElement(StatKpi, { label: "Llamadas Recibidas", value: tot.ofrecidas.toLocaleString("es-AR"), sub: `~${Math.round(tot.ofrecidas / 12)}/hora`, accent: C.mid }),
-            tot.contestadas && React.createElement(StatKpi, { label: "Atendidas", value: tot.contestadas.toLocaleString("es-AR"), sub: `${pctAtend.toFixed(1)}% del total`, accent: C.green }),
-            tot.abandonadas && React.createElement(StatKpi, { label: "Abandonadas", value: tot.abandonadas.toLocaleString("es-AR"), sub: `${pctAband.toFixed(1)}% del total`, accent: C.red }),
-            ag?.agents?.filter(a => a.ofrecidas >= 30).length > 0 && React.createElement(StatKpi, { label: "Operadores Activos", value: (ag.agents || []).filter(a => a.ofrecidas >= 30).length, sub: "cabinas cubiertas", accent: C.yellow }),
-            dpI?.length > 0 && React.createElement(StatKpi, { label: "Distritos Evaluados", value: dpI.length, sub: "en el período", accent: "#7c3aed" }),
-        ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 } },
-            horaData && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 14 } }, "📞 Llamadas por Hora"),
-                React.createElement("div", { style: { height: 220 } }, React.createElement(ChartBar, { id: "chart-hora", data: horaData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 11 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
+    return React.createElement("div", { className: "animate-fade" },
+        // --- HEADER PRINCIPAL ---
+        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 16, padding: "24px 32px", marginBottom: 24, color: "#fff", boxShadow: "0 10px 25px rgba(27,58,107,0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, "Dirección de Comando de Gobierno y Coordinación"),
+                React.createElement("h1", { style: { fontSize: 28, fontWeight: 900, margin: 0, letterSpacing: "-0.5px" } }, "Informe de Gestión — SAE 911"),
+                React.createElement("div", { style: { fontSize: 14, color: "#e2e8f0", marginTop: 4, fontWeight: 500 } }, `🗓 ${turnoLabel}`)
             ),
-            abandonDonut && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "🔴 Tipo de Abandono"),
-                React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, `Total: ${tot.abandonadas?.toLocaleString("es-AR")} llamadas`),
-                React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "chart-abandono", data: abandonDonut, options: donutOpts })),
-                React.createElement("div", { style: { marginTop: 12, display: "flex", gap: 8, justifyContent: "center" } },
-                    React.createElement(Badge, { label: `Cola: ${tot.cola}`, color: C.orange, bg: C.orBg }),
-                    React.createElement(Badge, { label: `Cabina: ${tot.cabina}`, color: C.yellow, bg: C.ylBg })
-                )
+            React.createElement("div", { style: { textAlign: "right" } },
+                React.createElement("img", { src: "src/img/logo_geston.png", style: { height: 50, filter: "brightness(0) invert(1)" } })
             )
         ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 } },
-            agentesData && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Desempeño por Operador"),
-                React.createElement("div", { style: { height: 320 } }, React.createElement(ChartBar, { id: "chart-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 } } } } } }))
-            ),
-            agentsRanking.top.length > 0 && React.createElement(Card, null,
-                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 } },
-                    React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
-                        React.createElement("span", null, "🏆 Ranking del Turno"),
+
+        // --- KPIs DE ALTO NIVEL ---
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
+            React.createElement(StatKpi, { label: "Total Recibidas", value: tot.ofrecidas?.toLocaleString("es-AR") || "0", sub: "Llamadas totales", accent: C.blue, icon: "📞" }),
+            React.createElement(StatKpi, { label: "Llamadas Perdidas", value: tot.abandonadas?.toLocaleString("es-AR") || "0", sub: "Global fuera de meta", accent: C.red, icon: "📉" }),
+            React.createElement(StatKpi, { label: "% de Abandono", value: `${pctAband.toFixed(1)}%`, sub: "Indicador crítico", accent: pctAband > 15 ? C.red : (pctAband > 8 ? C.orange : C.green), icon: "⚠️" }),
+            React.createElement(StatKpi, { label: "TMO Promedio", value: fmtSeconds(agentsRanking.avgManejo), sub: "Tiempo de atención", accent: C.mid, icon: "⏱️" })
+        ),
+
+        // --- CUERPO CENTRAL: GRÁFICOS Y RANKING ---
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, marginBottom: 24 } },
+            
+            // Columna Izquierda: Gráficos de Tiempo y Volumen
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
+                
+                // Los 3 Tiempos de Respuesta
+                React.createElement(Card, { style: { borderTop: `4px solid ${C.mid}` } },
+                    React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 20, display: "flex", alignItems: "center", gap: 8 } }, 
+                        React.createElement("span", null, "⏱️ Tiempos de Respuesta (SLA)"),
                     ),
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 } },
+                        [
+                            { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 180, icon: "📝" },
+                            { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 60, icon: "🔄" },
+                            { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120, icon: "🚓" }
+                        ].map(t => (
+                            React.createElement("div", { key: t.label, style: { background: "#f8fafc", borderRadius: 12, padding: "16px", textAlign: "center", border: `1px solid ${C.border}` } },
+                                React.createElement("div", { style: { fontSize: 20, marginBottom: 6 } }, t.icon),
+                                React.createElement("div", { style: { fontSize: 24, fontWeight: 950, color: getGaugeColor(t.val, t.meta), marginBottom: 2 } }, fmtSeconds(t.val)),
+                                React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, t.label),
+                                React.createElement("div", { style: { fontSize: 9, color: t.val > t.meta ? C.red : C.green, marginTop: 4, fontWeight: 700 } }, t.val > t.meta ? `Excede meta (${fmtSeconds(t.meta)})` : "Dentro de meta")
+                            )
+                        ))
+                    )
+                ),
+
+                // Alertas Prioritarias (Subidas para mayor visibilidad)
+                React.createElement(AutoAlertas, { data })
+            ),
+
+            // Columna Derecha: Ranking Compacto
+            React.createElement(Card, { style: { padding: "20px 0" } },
+                React.createElement("div", { style: { padding: "0 20px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+                    React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, textTransform: "uppercase" } }, "🏆 Ranking Operadores"),
                     groups.length > 0 && React.createElement("select", {
                         value: groupFilter,
                         onChange: e => setGroupFilter(e.target.value),
-                        style: { padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11, fontWeight: 700, color: C.mid, outline: "none" }
+                        style: { padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 10, fontWeight: 800, color: C.mid, outline: "none", cursor: "pointer" }
                     },
-                        React.createElement("option", { value: "all" }, "Todos los Grupos"),
+                        React.createElement("option", { value: "all" }, "Todos"),
                         groups.map(g => React.createElement("option", { key: g, value: g }, g))
                     )
                 ),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr", gap: 12 } },
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.green, marginBottom: 8, textTransform: "uppercase" } }, "🥇 Top 3 - Mejores"),
-                        agentsRanking.top.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 10px", background: C.greenBg, borderRadius: 8, border: `1px solid #c6f6d5` } },
-                            React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
+                React.createElement("div", { style: { padding: "16px 20px" } },
+                    React.createElement("div", { style: { marginBottom: 24 } },
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.green, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 } }, "🥇 TOP DESEMPEÑO"),
+                        agentsRanking.top.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 } },
+                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: i === 0 ? "#FFD700" : (i === 1 ? "#C0C0C0" : (i === 2 ? "#CD7F32" : C.green)), color: i < 3 ? C.navy : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
                             React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.green } }, a.contestadas)
+                            React.createElement("div", { style: { textAlign: "right" } },
+                                React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.navy } }, a.contestadas),
+                                React.createElement("div", { style: { fontSize: 9, color: C.green, fontWeight: 700 } }, `${a.pctVozPreparada}%`)
+                            )
                         ))
                     ),
-                    React.createElement("div", { style: { height: 1, background: C.border, margin: "4px 0" } }),
                     React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.red, marginBottom: 8, textTransform: "uppercase" } }, "⚠️ Bottom 3 - Críticos"),
-                        agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "8px 12px", background: C.redBg, borderRadius: 8, border: `1px solid #fed7d7` } },
-                            React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: C.red, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.red } }, a.contestadas)
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 } }, "⚠️ MENOR ACTIVIDAD"),
+                        agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10, opacity: 0.8 } },
+                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
+                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0]),
+                            React.createElement("div", { style: { textAlign: "right" } },
+                                React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.navy } }, a.contestadas),
+                                React.createElement("div", { style: { fontSize: 9, color: C.red, fontWeight: 700 } }, `${a.pctAbandonoCabina}%`)
+                            )
                         ))
                     )
+                ),
+                React.createElement("div", { style: { padding: "12px 20px", borderTop: `1px solid ${C.border}`, background: "#f8fafc", fontSize: 10, color: C.gray, fontWeight: 600, textAlign: "center" } },
+                    `Promedio Voz Prep: ${agentsRanking.avgPctVoz}%`
                 )
             )
-        ),
-        gaugeData && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 16 } },
-            React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Inicio → Despacho"),
-                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
-                    React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoInicioDespacho, 120) } }, fmtSeconds(gaugeData.tiempoInicioDespacho))
-                )
-            ),
-            React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Derivación → Inicio"),
-                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
-                    React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoDerivacionInicio, 90) } }, fmtSeconds(gaugeData.tiempoDerivacionInicio))
-                )
-            ),
-            React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 10 } }, "⏱️ Creación → Despacho"),
-                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", height: 120 } },
-                    React.createElement("div", { style: { fontSize: 48, fontWeight: 900, color: getGaugeColor(gaugeData.tiempoCreacionDespacho, 180) } }, fmtSeconds(gaugeData.tiempoCreacionDespacho))
-                )
-            )
-        ),
-        despData && React.createElement(Card, { style: { marginBottom: 16 } },
-            React.createElement("div", { style: { fontWeight: 700, fontSize: 14, color: C.navy, marginBottom: 4 } }, "🚓 Inicio Despacho → Asignación (por Distrito)"),
-            React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 14 } }, "Ordenado de menor a mayor. Verde < 40 seg. · Rojo > 3 min."),
-            React.createElement("div", { style: { height: 200 } }, React.createElement(ChartLine, { id: "chart-despacho", data: despData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 9 }, callback: v => fmtSeconds(v) } } } } }))
-        ),
-        React.createElement(AutoAlertas, { data })
+        )
     );
 }
 
