@@ -1189,9 +1189,43 @@ function ViewReporteHistorial({ data }) {
         };
     }, [ag, groupFilter, staffMap]);
 
+    const dp = dpI?.length ? dpI : (dpD?.length ? dpD : dpC);
     const tot = ab?.totals || {};
+    const pctAtend = tot.ofrecidas ? ((tot.contestadas / tot.ofrecidas) * 100) : 0;
     const pctAband = tot.ofrecidas ? ((tot.abandonadas / tot.ofrecidas) * 100) : 0;
     const meta = ab?.meta || ag?.meta || {};
+
+    const horaData = useMemo(() => {
+        if (!ab?.intervals?.length) return null;
+        const ivs = ab.intervals;
+        return {
+            labels: ivs.map(i => i.hora),
+            datasets: [
+                { label: "Atendidas", data: ivs.map(i => i.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
+                { label: "Abandonadas", data: ivs.map(i => i.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 },
+            ]
+        };
+    }, [ab]);
+
+    const abandonDonut = useMemo(() => {
+        if (!tot.abandonadas) return null;
+        return { labels: ["En Cola", "En Cabina"], datasets: [{ data: [tot.cola || 0, tot.cabina || 0], backgroundColor: ["#ea580c", "#eab308"], borderWidth: 0 }] };
+    }, [tot]);
+
+    const agentesData = useMemo(() => {
+        if (!ag?.agents?.length) return null;
+        const main = ag.agents.filter(a => a.ofrecidas >= 30).sort((a, b) => b.contestadas - a.contestadas).slice(0, 15);
+        return { labels: main.map(a => a.nombre.split(",")[0]), datasets: [{ label: "Contestadas", data: main.map(a => a.contestadas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 }] };
+    }, [ag]);
+
+    const despData = useMemo(() => {
+        if (!dp?.length) return null;
+        const sorted = [...dp].sort((a, b) => (a.tiempoSec || 0) - (b.tiempoSec || 0));
+        return {
+            labels: sorted.map(d => (d.nombre || "").replace("DISTRITO ", "D.")),
+            datasets: [{ label: "Seg. promedio", data: sorted.map(d => d.tiempoSec || 0), borderColor: C.mid, backgroundColor: "rgba(46,95,163,0.10)", fill: true, tension: 0.3 }]
+        };
+    }, [dp]);
 
     const gaugeData = useMemo(() => {
         const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
@@ -1201,65 +1235,119 @@ function ViewReporteHistorial({ data }) {
         return { tiempoInicioDespacho: tI, tiempoDerivacionInicio: tD, tiempoCreacionDespacho: tC };
     }, [dpI, dpD, dpC]);
 
+    const donutOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right", labels: { font: { size: 10 } } } }, cutout: "65%" };
     const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde || ""} → ${meta.fechaHasta} ${meta.horaHasta || ""}` : "Período cargado";
 
     return React.createElement("div", { className: "animate-fade" },
-        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 16, padding: "24px 32px", marginBottom: 24, color: "#fff", boxShadow: "0 10px 25px rgba(27,58,107,0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        // --- HEADER HISTORIAL ---
+        React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 100%)`, borderRadius: 16, padding: "32px", marginBottom: 24, color: "#fff", boxShadow: "0 10px 30px rgba(0,0,0,0.1)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
             React.createElement("div", null,
-                React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 4 } }, "Dirección de Comando de Gobierno y Coordinación"),
-                React.createElement("h1", { style: { fontSize: 24, fontWeight: 900, margin: 0 } }, "Reporte de Gestión"),
-                React.createElement("div", { style: { fontSize: 13, color: "#e2e8f0", marginTop: 4 } }, `🗓 ${turnoLabel}`)
+                React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 } }, "Archivo de Reportes Históricos — SAE 911"),
+                React.createElement("h1", { style: { fontSize: 30, fontWeight: 950, margin: 0, letterSpacing: "-0.5px" } }, "Reporte de Gestión Finalizado"),
+                React.createElement("div", { style: { fontSize: 15, color: "#cbd5e1", marginTop: 6, fontWeight: 500 } }, `🗓 ${turnoLabel}`)
+            ),
+            React.createElement("div", { style: { textAlign: "right" } },
+                React.createElement("div", { style: { fontSize: 13, fontWeight: 800, color: "#93c5fd" } }, data.usuario ? `Autor: ${data.usuario}` : "Generado Automáticamente")
             )
         ),
+
+        // --- KPIs PRINCIPALES ---
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
             React.createElement(StatKpi, { label: "Total Recibidas", value: tot.ofrecidas?.toLocaleString("es-AR") || "0", sub: "Llamadas totales", accent: C.blue, icon: "📞" }),
             React.createElement(StatKpi, { label: "Llamadas Perdidas", value: tot.abandonadas?.toLocaleString("es-AR") || "0", sub: "Global fuera de meta", accent: C.red, icon: "📉" }),
             React.createElement(StatKpi, { label: "% de Abandono", value: `${pctAband.toFixed(1)}%`, sub: "Indicador crítico", accent: pctAband > 15 ? C.red : (pctAband > 8 ? C.orange : C.green), icon: "⚠️" }),
             React.createElement(StatKpi, { label: "TMO Promedio", value: fmtSeconds(agentsRanking.avgManejo), sub: "Tiempo de atención", accent: C.mid, icon: "⏱️" })
         ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, marginBottom: 24 } },
-            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
-                React.createElement(Card, { style: { borderTop: `4px solid ${C.mid}` } },
-                    React.createElement("div", { style: { fontWeight: 900, fontSize: 13, color: C.navy, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 16 } }, "⏱️ Tiempos de Respuesta (SLA)"),
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
-                        [{ label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 180 }, { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 60 }, { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }].map(t => (
-                            React.createElement("div", { key: t.label, style: { background: "#f8fafc", borderRadius: 10, padding: "12px", textAlign: "center", border: `1px solid ${C.border}` } },
-                                React.createElement("div", { style: { fontSize: 22, fontWeight: 950, color: getGaugeColor(t.val, t.meta) } }, fmtSeconds(t.val)),
-                                React.createElement("div", { style: { fontSize: 9, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, t.label)
-                            )
-                        ))
-                    )
-                ),
-                React.createElement(AutoAlertas, { data })
+
+        // --- BLOQUE DE NUMÉRICA Y SLA ---
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 } },
+            React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "📊 Detalle Numérico del Informe"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 } },
+                    [
+                        { label: "Atendidas", val: tot.contestadas, c: C.green },
+                        { label: "Abandonadas", val: tot.abandonadas, c: C.red },
+                        { label: "En Cola", val: tot.cola, c: C.orange },
+                        { label: "En Cabina", val: tot.cabina, c: C.yellow }
+                    ].map(n => (
+                        React.createElement("div", { key: n.label, style: { padding: "12px", background: "#f8fafc", borderRadius: 10, borderLeft: `4px solid ${n.c}` } },
+                            React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase" } }, n.label),
+                            React.createElement("div", { style: { fontSize: 20, fontWeight: 900, color: C.navy } }, n.val?.toLocaleString("es-AR") || "0")
+                        )
+                    ))
+                )
             ),
-            React.createElement(Card, { style: { padding: "16px 0" } },
-                React.createElement("div", { style: { padding: "0 16px 12px", borderBottom: `1px solid ${C.border}`, fontWeight: 900, fontSize: 12, color: C.navy, textTransform: "uppercase" } }, "🏆 Ranking Operadores"),
-                React.createElement("div", { style: { padding: "12px 16px" } },
-                    React.createElement("div", { style: { marginBottom: 20 } },
-                        React.createElement("div", { style: { fontSize: 9, fontWeight: 800, color: C.green, marginBottom: 8 } }, "🥇 TOP DESEMPEÑO"),
-                        agentsRanking.top.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
-                            React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 900 } }, i + 1),
-                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.navy } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { textAlign: "right" } },
-                                React.createElement("div", { style: { fontSize: 11, fontWeight: 900, color: C.navy } }, a.contestadas),
-                                React.createElement("div", { style: { fontSize: 8, color: C.green, fontWeight: 800 } }, `${a.pctVozPreparada}%`)
-                            )
-                        ))
-                    ),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 9, fontWeight: 800, color: C.red, marginBottom: 8 } }, "⚠️ MENOR ACTIVIDAD"),
-                        agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8 } },
-                            React.createElement("div", { style: { width: 22, height: 22, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { textAlign: "right" } },
-                                React.createElement("div", { style: { fontSize: 11, fontWeight: 900, color: C.navy } }, a.contestadas),
-                                React.createElement("div", { style: { fontSize: 8, color: C.red, fontWeight: 800 } }, `${a.pctAbandonoCabina}%`)
-                            )
-                        ))
-                    )
+            React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta Registrados"),
+                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+                    [
+                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 180 },
+                        { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 60 },
+                        { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
+                    ].map(t => (
+                        React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
+                            React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: C.navy } }, t.label),
+                            React.createElement("div", { style: { fontSize: 20, fontWeight: 950, color: getGaugeColor(t.val, t.meta) } }, fmtSeconds(t.val))
+                        )
+                    ))
                 )
             )
-        )
+        ),
+
+        // --- GRÁFICOS INTERMEDIOS ---
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginBottom: 20 } },
+            horaData && React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "📈 Comportamiento Horario"),
+                React.createElement("div", { style: { height: 260 } }, React.createElement(ChartBar, { id: "hist-master-hora", data: horaData, options: { responsive: true, maintainAspectRatio: false } }))
+            ),
+            abandonDonut && React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "🔴 Composición de Abandono"),
+                React.createElement("div", { style: { height: 180 } }, React.createElement(ChartDoughnut, { id: "hist-master-abandono", data: abandonDonut, options: donutOpts })),
+                React.createElement("div", { style: { marginTop: 16, display: "flex", flexWrap: "wrap", gap: 8 } },
+                    React.createElement(Badge, { label: `Cola: ${tot.cola}`, color: C.orange, bg: C.orBg }),
+                    React.createElement(Badge, { label: `Cabina: ${tot.cabina}`, color: C.yellow, bg: C.ylBg })
+                )
+            )
+        ),
+
+        // --- RANKINGS Y DESEMPEÑO ---
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: 20, marginBottom: 20 } },
+            agentesData && React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Mejores Rendimientos del Turno"),
+                React.createElement("div", { style: { height: 350 } }, React.createElement(ChartBar, { id: "hist-master-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, indexAxis: "y" } }))
+            ),
+            React.createElement(Card, null,
+                React.createElement("div", { style: { fontWeight: 950, fontSize: 13, color: C.navy, textTransform: "uppercase", paddingBottom: 12, borderBottom: `1px solid ${C.border}`, marginBottom: 20 } }, "🏆 Rankings del Reporte"),
+                React.createElement("div", { style: { marginBottom: 30 } },
+                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.green, marginBottom: 12 } }, "🥇 MEJOR DESEMPEÑO"),
+                    agentsRanking.top.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
+                            React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, a.nombre.split(",")[0])
+                        ),
+                        React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
+                    ))
+                ),
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12 } }, "⚠️ MENOR ACTIVIDAD"),
+                    agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
+                            React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0])
+                        ),
+                        React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
+                    ))
+                )
+            )
+        ),
+
+        // --- DISTRITOS ---
+        despData && React.createElement(Card, { style: { marginBottom: 24 } },
+            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "🚓 Tiempos de Despacho Registrados por Distrito"),
+            React.createElement("div", { style: { height: 250 } }, React.createElement(ChartLine, { id: "hist-master-despacho", data: despData, options: { responsive: true, maintainAspectRatio: false } }))
+        ),
+
+        React.createElement(AutoAlertas, { data })
     );
 }
 
