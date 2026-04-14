@@ -860,6 +860,93 @@ function TurnoDetailView({ report, onBack }) {
                 ))
             )
         )
+            )
+        )
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CALENDAR PICKER CUSTOM PARA DIRECCION
+// ══════════════════════════════════════════════════════════════════════════════
+function parseDirDate(dStr) {
+    if (!dStr) return new Date(0);
+    const p = dStr.split(/[/-]/);
+    if (p.length === 3) return new Date(p[2], parseInt(p[1]) - 1, p[0]);
+    return new Date(0);
+}
+
+function CalendarPicker({ selectedDate, validDates, onSelect }) {
+    const [open, setOpen] = useState(false);
+    const [currentMonth, setCurrentMonth] = useState(() => {
+        const d = selectedDate ? parseDirDate(selectedDate) : new Date();
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    });
+    const calRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (calRef.current && !calRef.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+    const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+    const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+    const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+    const validSet = new Set(validDates);
+
+    return React.createElement("div", { ref: calRef, style: { position: "relative" } },
+        React.createElement("button", {
+            className: "dir-select",
+            onClick: () => setOpen(!open),
+            style: { minWidth: 160, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", background: "rgba(255,255,255,0.05)", border: `1px solid ${D.border}`, color: D.textTop, fontWeight: 700 }
+        },
+            React.createElement("span", null, selectedDate || "Seleccionar Fecha..."),
+            React.createElement("span", { style: { fontSize: 10, color: D.gold } }, "▼")
+        ),
+        open && React.createElement("div", { style: { position: "absolute", top: "110%", left: 0, zIndex: 50, background: D.card, border: `1px solid ${D.border}`, borderRadius: 12, padding: 16, boxShadow: "0 10px 40px rgba(0,0,0,0.8)", width: 280 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                React.createElement("button", { onClick: prevMonth, style: { background: "transparent", border: "none", color: D.gold, cursor: "pointer", fontSize: 18 } }, "◀"),
+                React.createElement("div", { style: { fontWeight: 800, color: D.textTop } }, `${monthNames[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`),
+                React.createElement("button", { onClick: nextMonth, style: { background: "transparent", border: "none", color: D.gold, cursor: "pointer", fontSize: 18 } }, "▶")
+            ),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, textAlign: "center", marginBottom: 8 } },
+                ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sa"].map(d => React.createElement("div", { key: d, style: { fontSize: 11, color: D.gray, fontWeight: 700 } }, d))
+            ),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 } },
+                days.map((d, i) => {
+                    if (!d) return React.createElement("div", { key: i });
+                    const dateStr = `${d.toString().padStart(2, "0")}-${(currentMonth.getMonth() + 1).toString().padStart(2, "0")}-${currentMonth.getFullYear()}`;
+                    const hasReport = validSet.has(dateStr);
+                    const isSelected = selectedDate === dateStr;
+                    return React.createElement("button", {
+                        key: i,
+                        onClick: () => {
+                            if (hasReport) {
+                                onSelect(dateStr);
+                                setOpen(false);
+                            }
+                        },
+                        style: {
+                            background: isSelected ? D.blue : (hasReport ? "rgba(255,255,255,0.05)" : "transparent"),
+                            border: isSelected ? `1px solid ${D.blue}` : (hasReport ? `1px solid ${D.border}` : "1px solid transparent"),
+                            color: isSelected ? "#fff" : (hasReport ? D.textTop : "rgba(255,255,255,0.2)"),
+                            borderRadius: 6, padding: "6px 0", fontSize: 12, fontWeight: hasReport ? 800 : 400,
+                            cursor: hasReport ? "pointer" : "default",
+                            opacity: hasReport ? 1 : 0.3
+                        }
+                    }, d);
+                })
+            )
+        )
     );
 }
 
@@ -874,12 +961,19 @@ function ViewTurnoDir({ informes }) {
             const fecha = r.turno?.fecha || r.datos?.agentes?.meta?.fechaDesde || "";
             if (fecha) set.add(fecha);
         });
-        return Array.from(set).sort((a, b) => b.localeCompare(a));
+        return Array.from(set).sort((a, b) => {
+            return parseDirDate(b).getTime() - parseDirDate(a).getTime(); // Más reciente primero
+        });
     }, [informes]);
 
     const [dia,    setDia]    = useState(() => dias[0] || "");
     const [turno,  setTurno]  = useState("all"); // all | dia(07-19) | noche(19-07)
     const [selIdx, setSelIdx] = useState(null);
+
+    // Auto-seleccionar el día más reciente si aún no está seleccionado o llegaron datos nuevos
+    useEffect(() => {
+        if (!dia && dias.length > 0) setDia(dias[0]);
+    }, [dias, dia]);
 
     // Filtrar informes por día seleccionado
     const porDia = useMemo(() => {
@@ -918,18 +1012,14 @@ function ViewTurnoDir({ informes }) {
 
         // Filtros
         React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" } },
-            // Selector de día
+            // Selector de día (Calendario customizado)
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                React.createElement("span", { style: { fontSize: 12, color: D.gray, fontWeight: 600 } }, "📅 Día:"),
-                React.createElement("select", {
-                    className: "dir-select",
-                    value: dia,
-                    onChange: e => { setDia(e.target.value); setSelIdx(null); },
-                    id: "sel-dia-turno"
-                },
-                    React.createElement("option", { value: "" }, "Seleccionar día..."),
-                    dias.map(d => React.createElement("option", { key: d, value: d }, d))
-                )
+                React.createElement("span", { style: { fontSize: 13, color: D.gold, fontWeight: 800 } }, "📅 Día:"),
+                React.createElement(CalendarPicker, {
+                    selectedDate: dia,
+                    validDates: dias,
+                    onSelect: d => { setDia(d); setSelIdx(null); }
+                })
             ),
 
             // Turno
