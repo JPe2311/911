@@ -488,14 +488,6 @@ function ViewMensualDir({ mensual }) {
         }).sort((a, b) => (a.meta?.monthNum || 0) - (b.meta?.monthNum || 0));
     }, [mensual, year, month]);
 
-    if (!mensual || mensual.length === 0) {
-        return React.createElement("div", { className: "dir-card", style: { textAlign: "center", padding: 60, color: D.gray } },
-            React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "📊"),
-            React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "Sin datos mensuales"),
-            React.createElement("div", { style: { fontSize: 13, marginTop: 6 } }, "Cargá un análisis mensual desde el sistema principal.")
-        );
-    }
-
     // Totales acumulados del filtro
     const totals = useMemo(() => {
         const acc = { totalC: 0, totalO: 0, totalAb: 0, records: 0 };
@@ -533,6 +525,14 @@ function ViewMensualDir({ mensual }) {
             ]
         };
     }, [filtered]);
+
+    if (!mensual || mensual.length === 0) {
+        return React.createElement("div", { className: "dir-card", style: { textAlign: "center", padding: 60, color: D.gray } },
+            React.createElement("div", { style: { fontSize: 40, marginBottom: 12 } }, "📊"),
+            React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "Sin datos mensuales"),
+            React.createElement("div", { style: { fontSize: 13, marginTop: 6 } }, "Cargá un análisis mensual desde el sistema principal.")
+        );
+    }
 
     return React.createElement("div", { className: "animate-fade" },
 
