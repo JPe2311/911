@@ -492,13 +492,20 @@ function ViewMensualDir({ mensual }) {
     const totals = useMemo(() => {
         const acc = { totalC: 0, totalO: 0, totalAb: 0, records: 0 };
         filtered.forEach(m => {
-            const rows = m.rows || m.operadores || [];
-            rows.forEach(r => {
-                acc.totalO  += (r.o  || 0);
-                acc.totalC  += (r.c  || 0);
-                acc.totalAb += (r.ab || 0);
+            if (m.resumen) {
+                acc.totalO  += m.resumen.totalOfrecidas || 0;
+                acc.totalC  += m.resumen.totalContestadas || 0;
+                acc.totalAb += m.resumen.totalAbandonadas || 0;
                 acc.records++;
-            });
+            } else {
+                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+                rows.forEach(r => {
+                    acc.totalO  += (r.o  || r.ofrecidas || 0);
+                    acc.totalC  += (r.c  || r.contestadas || 0);
+                    acc.totalAb += (r.ab || r.abandonadas || 0);
+                    acc.records++;
+                });
+            }
         });
         return acc;
     }, [filtered]);
@@ -509,10 +516,17 @@ function ViewMensualDir({ mensual }) {
         filtered.forEach(m => {
             const mn = m.meta?.monthNum;
             if (!mn) return;
-            const rows = m.rows || m.operadores || [];
-            const sumC  = rows.reduce((s,r) => s + (r.c  || 0), 0);
-            const sumO  = rows.reduce((s,r) => s + (r.o  || 0), 0);
-            const sumAb = rows.reduce((s,r) => s + (r.ab || 0), 0);
+            let sumC = 0, sumO = 0, sumAb = 0;
+            if (m.resumen) {
+                sumC = m.resumen.totalContestadas || 0;
+                sumO = m.resumen.totalOfrecidas || 0;
+                sumAb = m.resumen.totalAbandonadas || 0;
+            } else {
+                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+                sumC  = rows.reduce((s,r) => s + (r.c  || r.contestadas || 0), 0);
+                sumO  = rows.reduce((s,r) => s + (r.o  || r.ofrecidas || 0), 0);
+                sumAb = rows.reduce((s,r) => s + (r.ab || r.abandonadas || 0), 0);
+            }
             byMonth[mn] = { c: sumC, o: sumO, ab: sumAb, label: MONTH_NAMES[mn] };
         });
         const keys   = Object.keys(byMonth).sort((a,b) => a-b);
@@ -579,15 +593,24 @@ function ViewMensualDir({ mensual }) {
                     ),
                     React.createElement("tbody", null,
                         filtered.map((m, i) => {
-                            const rows = m.rows || m.operadores || [];
-                            const sumO  = rows.reduce((s,r) => s + (r.o  || 0), 0);
-                            const sumC  = rows.reduce((s,r) => s + (r.c  || 0), 0);
-                            const sumAb = rows.reduce((s,r) => s + (r.ab || 0), 0);
+                            let sumO = 0, sumC = 0, sumAb = 0, rowLen = 0;
+                            if (m.resumen) {
+                                sumO = m.resumen.totalOfrecidas || 0;
+                                sumC = m.resumen.totalContestadas || 0;
+                                sumAb = m.resumen.totalAbandonadas || 0;
+                                rowLen = (m.detalles || m.dailyAggr || m.rows || m.operadores || []).length;
+                            } else {
+                                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+                                sumO  = rows.reduce((s,r) => s + (r.o  || r.ofrecidas || 0), 0);
+                                sumC  = rows.reduce((s,r) => s + (r.c  || r.contestadas || 0), 0);
+                                sumAb = rows.reduce((s,r) => s + (r.ab || r.abandonadas || 0), 0);
+                                rowLen = rows.length;
+                            }
                             const pctAt = pct(sumC, sumO);
                             return React.createElement("tr", { key: i },
                                 React.createElement("td", { style: { fontWeight: 800, color: D.gold } }, MONTH_NAMES[m.meta?.monthNum] || "—"),
                                 React.createElement("td", { style: { color: D.textMid } }, m.meta?.year || "—"),
-                                React.createElement("td", null, rows.length),
+                                React.createElement("td", null, rowLen),
                                 React.createElement("td", null, sumO.toLocaleString("es-AR")),
                                 React.createElement("td", { style: { fontWeight: 700, color: D.blue } }, sumC.toLocaleString("es-AR")),
                                 React.createElement("td", { style: { color: sumAb > 0 ? D.red : D.textMid } }, sumAb.toLocaleString("es-AR")),
@@ -621,9 +644,10 @@ function TurnoDetailView({ report, onBack }) {
     const meta = ab?.meta || ag?.meta || {};
     const agents = ag?.agents || [];
 
-    const totalO  = report.resumen?.totalOfrecidas   || tot.ofrecidas   || 0;
-    const totalC  = report.resumen?.totalContestadas || tot.contestadas || 0;
-    const totalAb = report.resumen?.totalAbandonadas || tot.abandonadas || 0;
+    // Para mantener igualdad con `app.jsx`, los totales se toman del reporte 'abandonadas' primero y luego el calculo agregado de 'agentes'
+    const totalO  = tot.ofrecidas   || report.resumen?.totalOfrecidas   || 0;
+    const totalC  = tot.contestadas || report.resumen?.totalContestadas || 0;
+    const totalAb = tot.abandonadas || report.resumen?.totalAbandonadas || 0;
     const pctAband = totalO > 0 ? ((totalAb / totalO) * 100).toFixed(1) : "0.0";
     const pctAtend = totalO > 0 ? ((totalC  / totalO) * 100).toFixed(1) : "0.0";
 
