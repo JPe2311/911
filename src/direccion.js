@@ -492,19 +492,19 @@ function ViewMensualDir({ mensual }) {
     const totals = useMemo(() => {
         const acc = { totalC: 0, totalO: 0, totalAb: 0, records: 0 };
         filtered.forEach(m => {
-            if (m.resumen) {
-                acc.totalO  += m.resumen.totalOfrecidas || 0;
-                acc.totalC  += m.resumen.totalContestadas || 0;
-                acc.totalAb += m.resumen.totalAbandonadas || 0;
-                acc.records++;
-            } else {
-                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+            const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+            if (rows.length > 0) {
                 rows.forEach(r => {
                     acc.totalO  += (r.o  || r.ofrecidas || 0);
                     acc.totalC  += (r.c  || r.contestadas || 0);
                     acc.totalAb += (r.ab || r.abandonadas || 0);
                     acc.records++;
                 });
+            } else if (m.resumen) {
+                acc.totalO  += m.resumen.totalOfrecidas || 0;
+                acc.totalC  += m.resumen.totalContestadas || 0;
+                acc.totalAb += m.resumen.totalAbandonadas || 0;
+                acc.records++;
             }
         });
         return acc;
@@ -517,15 +517,15 @@ function ViewMensualDir({ mensual }) {
             const mn = m.meta?.monthNum;
             if (!mn) return;
             let sumC = 0, sumO = 0, sumAb = 0;
-            if (m.resumen) {
-                sumC = m.resumen.totalContestadas || 0;
-                sumO = m.resumen.totalOfrecidas || 0;
-                sumAb = m.resumen.totalAbandonadas || 0;
-            } else {
-                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+            const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+            if (rows.length > 0) {
                 sumC  = rows.reduce((s,r) => s + (r.c  || r.contestadas || 0), 0);
                 sumO  = rows.reduce((s,r) => s + (r.o  || r.ofrecidas || 0), 0);
                 sumAb = rows.reduce((s,r) => s + (r.ab || r.abandonadas || 0), 0);
+            } else if (m.resumen) {
+                sumC = m.resumen.totalContestadas || 0;
+                sumO = m.resumen.totalOfrecidas || 0;
+                sumAb = m.resumen.totalAbandonadas || 0;
             }
             byMonth[mn] = { c: sumC, o: sumO, ab: sumAb, label: MONTH_NAMES[mn] };
         });
@@ -563,7 +563,7 @@ function ViewMensualDir({ mensual }) {
         ),
 
         // KPIs
-        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(4, 1fr)" } },
+        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" } },
             React.createElement(KPICard, { label: "Llamadas Atendidas",  value: totals.totalC.toLocaleString("es-AR"),  icon: "📞", accent: D.blue,   delay: 0   }),
             React.createElement(KPICard, { label: "Llamadas Ofrecidas",  value: totals.totalO.toLocaleString("es-AR"),  icon: "📲", accent: D.purple, delay: 80  }),
             React.createElement(KPICard, { label: "Abandonadas",         value: totals.totalAb.toLocaleString("es-AR"), icon: "📉", accent: D.red,    delay: 160 }),
@@ -594,17 +594,18 @@ function ViewMensualDir({ mensual }) {
                     React.createElement("tbody", null,
                         filtered.map((m, i) => {
                             let sumO = 0, sumC = 0, sumAb = 0, rowLen = 0;
-                            if (m.resumen) {
-                                sumO = m.resumen.totalOfrecidas || 0;
-                                sumC = m.resumen.totalContestadas || 0;
-                                sumAb = m.resumen.totalAbandonadas || 0;
-                                rowLen = (m.detalles || m.dailyAggr || m.rows || m.operadores || []).length;
-                            } else {
-                                const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+                            const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
+                            
+                            if (rows.length > 0) {
                                 sumO  = rows.reduce((s,r) => s + (r.o  || r.ofrecidas || 0), 0);
                                 sumC  = rows.reduce((s,r) => s + (r.c  || r.contestadas || 0), 0);
                                 sumAb = rows.reduce((s,r) => s + (r.ab || r.abandonadas || 0), 0);
                                 rowLen = rows.length;
+                            } else if (m.resumen) {
+                                sumO = m.resumen.totalOfrecidas || 0;
+                                sumC = m.resumen.totalContestadas || 0;
+                                sumAb = m.resumen.totalAbandonadas || 0;
+                                rowLen = 0;
                             }
                             const pctAt = pct(sumC, sumO);
                             return React.createElement("tr", { key: i },
@@ -735,8 +736,8 @@ function TurnoDetailView({ report, onBack }) {
             )
         ),
 
-        // KPIs principales (6 tarjetas)
-        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(3,1fr)", marginBottom: 24 } },
+        // KPIs principales
+        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 24 } },
             React.createElement(KPICard, { label: "Total Ofrecidas",  value: totalO.toLocaleString("es-AR"),  icon: "📲", accent: D.purple, delay:0   }),
             React.createElement(KPICard, { label: "Llamadas Atendidas", value: totalC.toLocaleString("es-AR"),  icon: "📞", accent: D.blue,   delay:60  }),
             React.createElement(KPICard, { label: "Llamadas Perdidas",  value: totalAb.toLocaleString("es-AR"), icon: "📉", accent: D.red,    delay:120 }),
@@ -746,7 +747,7 @@ function TurnoDetailView({ report, onBack }) {
         ),
 
         // Numérica detallada + SLA tiempos
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 } },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 } },
             // Numérica
             React.createElement("div", { className: "dir-card" },
                 React.createElement(SectionTitle, { icon: "📊" }, "Numérica Detallada del Período"),
@@ -787,7 +788,7 @@ function TurnoDetailView({ report, onBack }) {
         ),
 
         // Gráfico horario + donut de abandono
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginBottom: 20 } },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 } },
             horaData && React.createElement("div", { className: "dir-card" },
                 React.createElement(SectionTitle, { icon: "📈" }, "Distribución de Llamadas por Hora"),
                 React.createElement("div", { style: { height: 260 } },
@@ -808,7 +809,7 @@ function TurnoDetailView({ report, onBack }) {
         ),
 
         // Gráfico de rendimiento por operador + ranking top/bottom
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: 20, marginBottom: 20 } },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 20 } },
             agentesData && React.createElement("div", { className: "dir-card" },
                 React.createElement(SectionTitle, { icon: "👤" }, "Rendimiento por Operador (Top 12)"),
                 React.createElement("div", { style: { height: 320 } },
@@ -1212,7 +1213,7 @@ function ViewPersonalDir({ performance: rawPerf, staff: rawStaff }) {
         ),
 
         // KPIs globales
-        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 24 } },
+        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", marginBottom: 24 } },
             React.createElement(KPICard, { label: "Operadores Activos", value: totales.count,                                  icon: "👤", accent: D.purple }),
             React.createElement(KPICard, { label: "Llamadas Atendidas", value: totales.totalC.toLocaleString("es-AR"),         icon: "📞", accent: D.blue   }),
             React.createElement(KPICard, { label: "Total Abandonadas",  value: totales.totalAb.toLocaleString("es-AR"),        icon: "📉", accent: D.red    }),
@@ -1375,11 +1376,8 @@ function AppDir() {
         // ── CONTENT ────────────────────────────────────────────────────────
         React.createElement("div", { className: "dir-content" },
 
-            // Alertas criticas
-            !dataLoading && React.createElement(AlertasPanel, { informes, mensual, performance }),
-
             // Selectores de modo
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 } },
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 16 } },
                 React.createElement("div", { className: "mode-tabs", id: "mode-tabs" },
                     modeConfig.map(m =>
                         React.createElement("button", {
@@ -1391,7 +1389,7 @@ function AppDir() {
                     )
                 ),
 
-                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" } },
                     React.createElement("button", {
                         onClick: () => setMode("mensual"),
                         style: { background: mode === "mensual" ? D.goldBg : "transparent", border: `1px solid ${mode === "mensual" ? D.gold : D.border}`, color: mode === "mensual" ? D.gold : D.textMid, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, transition: "all .2s" }
@@ -1408,6 +1406,11 @@ function AppDir() {
             mode === "mensual"  && React.createElement(ViewMensualDir,  { mensual }),
             mode === "turno"    && React.createElement(ViewTurnoDir,    { informes }),
             mode === "personal" && React.createElement(ViewPersonalDir, { performance, staff }),
+
+            // Alertas criticas movidas al inferior
+            !dataLoading && React.createElement("div", { style: { marginTop: 40 } },
+                React.createElement(AlertasPanel, { informes, mensual, performance })
+            ),
 
             // Footer
             React.createElement("div", { style: { marginTop: 48, paddingTop: 24, borderTop: `1px solid ${D.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" } },
