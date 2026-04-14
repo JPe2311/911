@@ -860,8 +860,6 @@ function TurnoDetailView({ report, onBack }) {
                 ))
             )
         )
-            )
-        )
     );
 }
 
