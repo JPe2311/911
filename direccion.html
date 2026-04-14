@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alta Dirección — SAE 911</title>
+  <link rel="icon" type="image/png" href="src/img/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- React + ReactDOM -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Babel standalone for JSX transform -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <!-- Firebase config (mismo que index.html) -->
+  <script src="src/firebase-config.js" onerror="console.warn('firebase-config.js no encontrado')"></script>
+
+  <script type="module">
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) {
+      const { initializeApp }  = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+      const { getFirestore }   = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+      const { getAuth }        = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+      const app      = initializeApp(window.FIREBASE_CONFIG, "direccion");
+      window.dbDir   = getFirestore(app);
+      window.authDir = getAuth(app);
+      console.log("✓ Firebase (Dirección) inicializado:", window.FIREBASE_CONFIG.projectId);
+    } else {
+      console.warn("⚠ Firebase no configurado");
+    }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: #080d1a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    canvas { max-width: 100%; }
+
+    /* ── Animations ───────────────────────── */
+    @keyframes fadeIn         { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeInFast     { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp        { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse-gold     { 0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } 50% { box-shadow: 0 0 0 8px rgba(245,158,11,0.12); } }
+    @keyframes counterUp      { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes shimmer        { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
+    @keyframes spin           { to { transform: rotate(360deg); } }
+    @keyframes alertPulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    .animate-fade    { animation: fadeIn 0.35s ease-out both; }
+    .animate-slide   { animation: slideUp 0.4s ease-out both; }
+    .animate-counter { animation: counterUp 0.5s ease-out both; }
+    .spinner         { animation: spin 0.8s linear infinite; display: inline-block; }
+
+    /* ── Login page ───────────────────────── */
+    .login-bg {
+      min-height: 100vh;
+      background: radial-gradient(ellipse at 30% 40%, #1a2744 0%, #080d1a 60%),
+                  radial-gradient(ellipse at 80% 80%, #1a1a2e 0%, transparent 50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-card {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      border-radius: 20px;
+      padding: 52px 48px;
+      width: 420px;
+      box-shadow: 0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
+      text-align: center;
+    }
+
+    .login-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245,158,11,0.12);
+      border: 1px solid rgba(245,158,11,0.3);
+      color: #f59e0b;
+      borderRadius: 99px;
+      padding: 6px 16px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+
+    .btn-google {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      border-radius: 12px;
+      padding: 15px 24px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+      letter-spacing: 0.3px;
+    }
+
+    .btn-google:hover {
+      background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(37,99,235,0.4);
+    }
+
+    .btn-google:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ── Main layout ──────────────────────── */
+    .dir-topbar {
+      background: linear-gradient(90deg, #080d1a 0%, #0f1729 100%);
+      border-bottom: 1px solid rgba(245,158,11,0.15);
+      padding: 0 28px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+    }
+
+    .dir-content {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    /* ── Cards ────────────────────────────── */
+    .dir-card {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(8px);
+    }
+
+    .dir-card-gold {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(245,158,11,0.2);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    /* ── KPI Cards ────────────────────────── */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
+
+    .kpi-card {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 20px 22px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: 14px 14px 0 0;
+    }
+
+    .kpi-card:hover { border-color: rgba(255,255,255,0.12); }
+
+    /* ── Filter tabs ──────────────────────── */
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 12px;
+      padding: 4px;
+    }
+
+    .mode-tab {
+      padding: 9px 20px;
+      border-radius: 9px;
+      border: none;
+      background: transparent;
+      color: #64748b;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+      white-space: nowrap;
+    }
+
+    .mode-tab.active {
+      background: rgba(245,158,11,0.15);
+      color: #f59e0b;
+      border: 1px solid rgba(245,158,11,0.25);
+    }
+
+    .mode-tab:hover:not(.active) { color: #94a3b8; background: rgba(255,255,255,0.04); }
+
+    /* ── Alert items ──────────────────────── */
+    .alert-critical { animation: alertPulse 2s ease-in-out infinite; }
+
+    /* ── Table ────────────────────────────── */
+    .dir-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .dir-table th {
+      padding: 12px 16px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .dir-table td {
+      padding: 13px 16px;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .dir-table tbody tr:hover { background: rgba(255,255,255,0.025); }
+
+    /* ── Select / Input ───────────────────── */
+    .dir-select, .dir-input {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      color: #e2e8f0;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .dir-select:focus, .dir-input:focus {
+      border-color: rgba(245,158,11,0.4);
+    }
+
+    .dir-select option { background: #0f172a; color: #e2e8f0; }
+
+    /* ── Badge ───────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    /* ── Token chip ───────────────────────── */
+    .token-chip {
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.2);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #f59e0b;
+      font-family: monospace;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root-dir"></div>
+  <script type="text/babel" src="src/direccion.js" charset="UTF-8" data-presets="react"></script>
+</body>
+</html>
