@@ -607,6 +607,271 @@ function ViewMensualDir({ mensual }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  TURNO DETAIL VIEW — Resumen General Ejecutivo por Turno
+// ══════════════════════════════════════════════════════════════════════════════
+function TurnoDetailView({ report, onBack }) {
+    const ab  = report.datos?.abandonadas;
+    const ag  = report.datos?.agentes;
+    const dpI = report.datos?.despachoInicio  || [];
+    const dpD = report.datos?.despachoDerivacion || [];
+    const dpC = report.datos?.despachoCreacion || [];
+
+    const tot = ab?.totals || {};
+    const ivs = ab?.intervals || [];
+    const meta = ab?.meta || ag?.meta || {};
+    const agents = ag?.agents || [];
+
+    const totalO  = report.resumen?.totalOfrecidas   || tot.ofrecidas   || 0;
+    const totalC  = report.resumen?.totalContestadas || tot.contestadas || 0;
+    const totalAb = report.resumen?.totalAbandonadas || tot.abandonadas || 0;
+    const pctAband = totalO > 0 ? ((totalAb / totalO) * 100).toFixed(1) : "0.0";
+    const pctAtend = totalO > 0 ? ((totalC  / totalO) * 100).toFixed(1) : "0.0";
+
+    // Tiempos de despacho
+    const avgSec = arr => arr.length ? Math.round(arr.reduce((s,v) => s+(v.tiempoSec||0),0)/arr.length) : 0;
+    const tI = avgSec(dpI); const tD = avgSec(dpD); const tC = avgSec(dpC);
+
+    // Ranking de agentes
+    const ranked = [...agents].filter(a => a.ofrecidas >= 5).sort((a,b) => b.contestadas - a.contestadas);
+    const avgManejo = ranked.length ? Math.round(ranked.reduce((s,a) => s + (a.tiempoManejo||0), 0) / ranked.length) : 0;
+
+    // Chart data horario
+    const horaData = ivs.length > 0 ? {
+        labels: ivs.map(i => i.hora),
+        datasets: [
+            { label: "Atendidas",   data: ivs.map(i => i.contestadas), backgroundColor: "rgba(59,130,246,0.8)",  borderRadius: 5 },
+            { label: "Abandonadas", data: ivs.map(i => i.abandonadas), backgroundColor: "rgba(239,68,68,0.75)", borderRadius: 5 },
+        ]
+    } : null;
+
+    // Donut abandono
+    const abandonDonut = (tot.cola || tot.cabina) ? {
+        labels: ["En Cola", "En Cabina"],
+        datasets: [{ data: [tot.cola||0, tot.cabina||0], backgroundColor: ["#f97316","#eab308"], borderWidth: 0 }]
+    } : null;
+
+    // Chart agentes (top 12)
+    const agentesData = ranked.length > 0 ? {
+        labels: ranked.slice(0,12).map(a => (a.nombre||"").split(",")[0]),
+        datasets: [
+            { label: "Contestadas", data: ranked.slice(0,12).map(a => a.contestadas), backgroundColor: "rgba(59,130,246,0.85)", borderRadius: 5 },
+            { label: "Abandonadas", data: ranked.slice(0,12).map(a => a.abandonadas), backgroundColor: "rgba(239,68,68,0.7)",  borderRadius: 5 },
+        ]
+    } : null;
+
+    // Chart despacho por distrito
+    const dp = dpI.length ? dpI : (dpD.length ? dpD : dpC);
+    const despData = dp.length > 0 ? {
+        labels: [...dp].sort((a,b)=>(a.tiempoSec||0)-(b.tiempoSec||0)).map(d => (d.nombre||"").replace("DISTRITO ","D.")),
+        datasets: [{ label: "Seg. promedio", data: [...dp].sort((a,b)=>(a.tiempoSec||0)-(b.tiempoSec||0)).map(d => d.tiempoSec||0), borderColor: D.gold, backgroundColor: "rgba(245,158,11,0.08)", fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: [...dp].sort((a,b)=>(a.tiempoSec||0)-(b.tiempoSec||0)).map(d => (d.tiempoSec||0)>200 ? D.red : (d.tiempoSec||0)<40 ? D.green : D.gold) }]
+    } : null;
+
+    const chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: D.textMid, font: { size: 10 } } } }, scales: { x: { ticks: { color: D.gray, font:{size:9} }, grid: { color: "rgba(255,255,255,0.04)" } }, y: { ticks: { color: D.gray, font:{size:9} }, grid: { color: "rgba(255,255,255,0.04)" } } } };
+    const donutOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right", labels: { color: D.textMid, font:{size:10}, padding:10 } } }, cutout: "65%" };
+
+    const getGaugeColor = (v, threshold) => v > threshold ? D.red : v > threshold*0.75 ? D.orange : D.green;
+
+    const turnoLabel = `${report.turno?.fecha||""} ${report.turno?.horaDesde||""} → ${report.turno?.horaHasta||""}`.trim();
+
+    // Alertas automáticas
+    const alertas = [];
+    const pctAbNum = parseFloat(pctAband);
+    if (pctAbNum > 25) alertas.push({ level:"red", msg:`Tasa de abandono elevada: ${pctAband}% (supera el 25%)` });
+    else if (pctAbNum >= 15) alertas.push({ level:"orange", msg:`Tasa de abandono moderada: ${pctAband}% — monitorear` });
+    else if (pctAbNum > 0) alertas.push({ level:"green", msg:`Tasa de abandono dentro del rango aceptable: ${pctAband}%` });
+    if (tC > 180) alertas.push({ level:"red", msg:`Tiempo Creación→Despacho excede la meta: ${fmtSeconds(tC)} (meta: 3')` });
+    if (tI > 120) alertas.push({ level:"orange", msg:`Tiempo Inicio→Despacho elevado: ${fmtSeconds(tI)} (meta: 2')` });
+    const peakHour = ivs.reduce((mx,i) => i.ofrecidas > (mx.ofrecidas||0) ? i : mx, {});
+    if (peakHour.hora) alertas.push({ level:"blue", msg:`Pico de demanda registrado a las ${peakHour.hora}: ${peakHour.ofrecidas} llamadas ofrecidas.` });
+
+    const alertColor = { red:D.red, orange:D.orange, green:D.green, blue:D.blue };
+    const alertBg    = { red:D.redBg, orange:D.orBg, green:D.greenBg, blue:D.goldBg };
+
+    return React.createElement("div", { className: "animate-fade" },
+
+        // Botón volver
+        onBack && React.createElement("button", {
+            onClick: onBack,
+            style: { background: "transparent", border: `1px solid ${D.border}`, color: D.textMid, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600, marginBottom: 20, fontFamily: "Inter,sans-serif" }
+        }, "← Volver a la lista"),
+
+        // Header banner
+        React.createElement("div", { style: { background: "linear-gradient(135deg,#080d1a 0%,#0f2444 60%,#1B3A6B 100%)", borderRadius: 16, padding: 28, marginBottom: 24, border: `1px solid ${D.goldBrd}`, display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: D.gold, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 } }, "Portal Alta Dirección — SAE 911"),
+                React.createElement("div", { style: { fontSize: 24, fontWeight: 900, color: D.text, letterSpacing: "-0.5px", marginBottom: 4 } }, "Resumen General de Gestión"),
+                React.createElement("div", { style: { fontSize: 13, color: D.textMid } }, `🗓 ${turnoLabel}`)
+            ),
+            React.createElement("div", { style: { textAlign: "right" } },
+                report.usuario && React.createElement("div", { style: { fontSize: 11, color: D.gold, fontWeight: 700 } }, `Autor: ${report.usuario}`),
+                React.createElement("div", { style: { marginTop: 6, display: "flex", gap: 8 } },
+                    React.createElement(Badge, { label: `${pctAtend}% Atendidas`, color: parseFloat(pctAtend)>85?D.green:D.orange, bg: parseFloat(pctAtend)>85?D.greenBg:D.orBg }),
+                    React.createElement(Badge, { label: `${pctAband}% Abandono`, color: pctAbNum>15?D.red:pctAbNum>8?D.orange:D.green, bg: pctAbNum>15?D.redBg:pctAbNum>8?D.orBg:D.greenBg })
+                )
+            )
+        ),
+
+        // KPIs principales (6 tarjetas)
+        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(3,1fr)", marginBottom: 24 } },
+            React.createElement(KPICard, { label: "Total Ofrecidas",  value: totalO.toLocaleString("es-AR"),  icon: "📲", accent: D.purple, delay:0   }),
+            React.createElement(KPICard, { label: "Llamadas Atendidas", value: totalC.toLocaleString("es-AR"),  icon: "📞", accent: D.blue,   delay:60  }),
+            React.createElement(KPICard, { label: "Llamadas Perdidas",  value: totalAb.toLocaleString("es-AR"), icon: "📉", accent: D.red,    delay:120 }),
+            React.createElement(KPICard, { label: "% Atención",  value: `${pctAtend}%`, icon: "🎯", accent: parseFloat(pctAtend)>85?D.green:D.orange, delay:180 }),
+            React.createElement(KPICard, { label: "% Abandono",  value: `${pctAband}%`, icon: "⚠️", accent: pctAbNum>15?D.red:pctAbNum>8?D.orange:D.green, delay:240 }),
+            React.createElement(KPICard, { label: "TMO Promedio", value: fmtSeconds(avgManejo), icon: "⏱️", accent: D.gold, delay:300, sub: `${ranked.length} operadores` })
+        ),
+
+        // Numérica detallada + SLA tiempos
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 } },
+            // Numérica
+            React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "📊" }, "Numérica Detallada del Período"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+                    [
+                        { label:"Ofrecidas",    val: totalO,              c: D.blue   },
+                        { label:"Contestadas",  val: totalC,              c: D.green  },
+                        { label:"Abandonadas",  val: totalAb,             c: D.red    },
+                        { label:"Abandono Cola",    val: tot.cola||0,     c: D.orange },
+                        { label:"Abandono Cabina",  val: tot.cabina||0,   c: D.yellow||"#eab308" },
+                        { label:"Operadores",   val: agents.length,       c: D.purple },
+                    ].map(n => React.createElement("div", { key: n.label, style: { padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, borderLeft: `3px solid ${n.c}` } },
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: D.gray, textTransform: "uppercase", marginBottom: 4 } }, n.label),
+                        React.createElement("div", { style: { fontSize: 20, fontWeight: 900, color: D.text } }, typeof n.val === "number" ? n.val.toLocaleString("es-AR") : n.val)
+                    ))
+                )
+            ),
+            // SLA tiempos despacho
+            React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "⏱️" }, "Tiempos de Respuesta (SLA)"),
+                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
+                    [
+                        { label:"Creación → Despacho",  val: tC, meta: 180 },
+                        { label:"Derivación → Inicio",   val: tD, meta: 60  },
+                        { label:"Inicio → Despacho",     val: tI, meta: 120 },
+                    ].map(t => React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 12 } },
+                        React.createElement("div", null,
+                            React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: D.textMid } }, t.label),
+                            React.createElement("div", { style: { fontSize: 9, color: D.gray } }, `Meta: ${fmtSeconds(t.meta)}`)
+                        ),
+                        React.createElement("div", { style: { textAlign: "right" } },
+                            React.createElement("div", { style: { fontSize: 22, fontWeight: 950, color: getGaugeColor(t.val, t.meta) } }, t.val > 0 ? fmtSeconds(t.val) : "—"),
+                            t.val > 0 && React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: t.val > t.meta ? D.red : D.green } }, t.val > t.meta ? "🚫 Excede" : "✅ Cumple")
+                        )
+                    ))
+                )
+            )
+        ),
+
+        // Gráfico horario + donut de abandono
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginBottom: 20 } },
+            horaData && React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "📈" }, "Distribución de Llamadas por Hora"),
+                React.createElement("div", { style: { height: 260 } },
+                    React.createElement(ChartBar, { id: "dir-hora-chart", data: horaData, options: chartOpts })
+                )
+            ),
+            abandonDonut && React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "🔴" }, "Composición de Abandono"),
+                React.createElement("div", { style: { height: 180 } },
+                    React.createElement(ChartDoughnut, { id: "dir-donut-chart", data: abandonDonut, options: donutOpts })
+                ),
+                React.createElement("div", { style: { marginTop: 16, display: "flex", flexWrap: "wrap", gap: 8 } },
+                    React.createElement(Badge, { label: `Cola: ${tot.cola||0}`,   color: D.orange, bg: D.orBg }),
+                    React.createElement(Badge, { label: `Cabina: ${tot.cabina||0}`, color: "#eab308", bg: "rgba(234,179,8,0.12)" }),
+                    React.createElement(Badge, { label: `Total: ${totalAb}`,       color: D.red,    bg: D.redBg })
+                )
+            )
+        ),
+
+        // Gráfico de rendimiento por operador + ranking top/bottom
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: 20, marginBottom: 20 } },
+            agentesData && React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "👤" }, "Rendimiento por Operador (Top 12)"),
+                React.createElement("div", { style: { height: 320 } },
+                    React.createElement(ChartBar, { id: "dir-agentes-chart", data: agentesData, options: { ...chartOpts, indexAxis: "y", plugins: { legend: { position:"bottom", labels:{color:D.textMid,font:{size:10}} } } } })
+                )
+            ),
+            ranked.length > 0 && React.createElement("div", { className: "dir-card" },
+                React.createElement(SectionTitle, { icon: "🏆" }, "Rankings del Turno"),
+                // Top 5
+                React.createElement("div", { style: { marginBottom: 20 } },
+                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: D.green, marginBottom: 10 } }, "🥇 MEJOR DESEMPEÑO"),
+                    ranked.slice(0,5).map((a,i) => React.createElement("div", { key: a.nombre, style: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 8 } },
+                        React.createElement("div", { style: { display:"flex", alignItems:"center", gap: 8 } },
+                            React.createElement("div", { style: { width:22, height:22, borderRadius:"50%", background:D.green, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:900 } }, i+1),
+                            React.createElement("span", { style: { fontSize:11, fontWeight:700, color:D.text } }, (a.nombre||"").split(",")[0])
+                        ),
+                        React.createElement("span", { style: { fontSize:13, fontWeight:900, color:D.blue } }, a.contestadas)
+                    ))
+                ),
+                // Bottom 5
+                React.createElement("div", null,
+                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: D.red, marginBottom: 10 } }, "⚠️ MENOR ACTIVIDAD"),
+                    [...ranked].reverse().slice(0,5).map((a,i) => React.createElement("div", { key: a.nombre+"b", style: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 8 } },
+                        React.createElement("div", { style: { display:"flex", alignItems:"center", gap: 8 } },
+                            React.createElement("div", { style: { width:22, height:22, borderRadius:"50%", background:D.redBg, color:D.red, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:900 } }, ranked.length-i),
+                            React.createElement("span", { style: { fontSize:11, fontWeight:700, color:D.textMid } }, (a.nombre||"").split(",")[0])
+                        ),
+                        React.createElement("span", { style: { fontSize:13, fontWeight:900, color:D.gray } }, a.contestadas)
+                    ))
+                )
+            )
+        ),
+
+        // Tiempos de despacho por distrito
+        despData && React.createElement("div", { className: "dir-card", style: { marginBottom: 20 } },
+            React.createElement(SectionTitle, { icon: "🚓" }, "Tiempos de Despacho por Distrito"),
+            React.createElement("div", { style: { height: 240 } },
+                React.createElement(ChartLine, { id: "dir-despacho-chart", data: despData, options: { ...chartOpts, plugins: { legend:{display:false} }, scales: { ...chartOpts.scales, y: { ...chartOpts.scales.y, ticks: { ...chartOpts.scales.y.ticks, callback: v => fmtSeconds(v) } } } } })
+            )
+        ),
+
+        // Alertas automáticas
+        alertas.length > 0 && React.createElement("div", { className: "dir-card", style: { marginBottom: 20 } },
+            React.createElement(SectionTitle, { icon: "🔔" }, "Alertas Automáticas del Turno"),
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+                alertas.map((a,i) => React.createElement("div", { key: i, style: { display:"flex", gap: 12, alignItems: "flex-start", padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderLeft: `4px solid ${alertColor[a.level]||D.blue}`, borderRadius: 10 } },
+                    React.createElement("div", { style: { fontSize: 16 } }, a.level==="red"?"🚨":a.level==="orange"?"⚠️":a.level==="green"?"✅":"ℹ️"),
+                    React.createElement("div", { style: { fontSize: 12, color: D.textMid, lineHeight: 1.5 } }, a.msg)
+                ))
+            )
+        ),
+
+        // Tabla completa de operadores (plegable)
+        agents.length > 0 && React.createElement("div", { className: "dir-card", style: { padding: 0, overflow: "hidden" } },
+            React.createElement("div", { style: { padding: "16px 20px", borderBottom: `1px solid ${D.border}`, fontWeight: 800, fontSize: 13, color: D.textMid } }, "👤 Detalle Completo de Operadores en Turno"),
+            React.createElement("div", { style: { overflowX: "auto" } },
+                React.createElement("table", { className: "dir-table" },
+                    React.createElement("thead", null,
+                        React.createElement("tr", null,
+                            ["#","Operador","Ofrecidas","Atendidas","Abandonadas","Disponibilidad","T.Conectado"].map(h =>
+                                React.createElement("th", { key: h }, h)
+                            )
+                        )
+                    ),
+                    React.createElement("tbody", null,
+                        ranked.map((ag, i) => React.createElement("tr", { key: ag.nombre+i },
+                            React.createElement("td", { style: { color: i<3?D.gold:D.gray, fontWeight:700 } }, i<3?["🥇","🥈","🥉"][i]:i+1),
+                            React.createElement("td", { style: { fontWeight:700, color:D.text } }, ag.nombre),
+                            React.createElement("td", null, ag.ofrecidas),
+                            React.createElement("td", { style: { fontWeight:700, color:D.blue } }, ag.contestadas),
+                            React.createElement("td", { style: { color: ag.abandonadas>5?D.red:D.textMid } }, ag.abandonadas),
+                            React.createElement("td", null,
+                                React.createElement("div", { style: { display:"flex", alignItems:"center", gap:8 } },
+                                    React.createElement("span", { style: { minWidth:44, fontWeight:700, color: ag.disponibilidad>80?D.green:D.orange } }, `${ag.disponibilidad}%`),
+                                    React.createElement(MiniBar, { pct: ag.disponibilidad, color: ag.disponibilidad>80?D.green:D.orange })
+                                )
+                            ),
+                            React.createElement("td", { style: { color:D.textMid } }, ag.tiempoConectado||"—")
+                        ))
+                    )
+                )
+            )
+        )
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  VIEW: REPORTE POR TURNO (con filtro por día)
 // ══════════════════════════════════════════════════════════════════════════════
 function ViewTurnoDir({ informes }) {
