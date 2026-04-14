@@ -95,16 +95,16 @@ async function closeSession(token) {
 async function loadInformes() {
     const db = getDB();
     if (!db) return [];
-    const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const snap = await getDocs(query(collection(db, "informes"), orderBy("fechaGuardado", "desc")));
+    const { collection, query, orderBy, limit, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDocs(query(collection(db, "informes"), orderBy("fechaGuardado", "desc"), limit(45)));
     return snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
 }
 
 async function loadMensual() {
     const db = getDB();
     if (!db) return [];
-    const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const snap = await getDocs(query(collection(db, "analisis_mensual"), orderBy("meta.year", "desc"), orderBy("meta.monthNum", "desc")));
+    const { collection, query, orderBy, limit, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDocs(query(collection(db, "analisis_mensual"), orderBy("meta.year", "desc"), orderBy("meta.monthNum", "desc"), limit(24)));
     return snap.docs.map(d => ({ firestoreId: d.id, ...d.data() }));
 }
 

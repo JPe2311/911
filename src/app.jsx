@@ -509,11 +509,12 @@ async function loadReportsFromFirestore() {
     const db = getDB();
     if (!db) return [];
     try {
-        const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        // Carga TODOS los reportes (visibles para todos los usuarios autenticados)
+        const { collection, query, orderBy, limit, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        // Carga últimos 45 reportes para optimizar lecturas de Firebase
         const q = query(
             collection(db, "informes"),
-            orderBy("fechaGuardado", "desc")
+            orderBy("fechaGuardado", "desc"),
+            limit(45)
         );
         const snap = await getDocs(q);
         return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() }));
