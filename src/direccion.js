@@ -835,8 +835,6 @@ function TurnoDetailView({ report, onBack }) {
                     React.createElement("div", { style: { fontSize: 12, color: D.textMid, lineHeight: 1.5 } }, a.msg)
                 ))
             )
-        ),
-
         )
     );
 }
