@@ -837,36 +837,6 @@ function TurnoDetailView({ report, onBack }) {
             )
         ),
 
-        // Tabla completa de operadores (plegable)
-        agents.length > 0 && React.createElement("div", { className: "dir-card", style: { padding: 0, overflow: "hidden" } },
-            React.createElement("div", { style: { padding: "16px 20px", borderBottom: `1px solid ${D.border}`, fontWeight: 800, fontSize: 13, color: D.textMid } }, "👤 Detalle Completo de Operadores en Turno"),
-            React.createElement("div", { style: { overflowX: "auto" } },
-                React.createElement("table", { className: "dir-table" },
-                    React.createElement("thead", null,
-                        React.createElement("tr", null,
-                            ["#","Operador","Ofrecidas","Atendidas","Abandonadas","Disponibilidad","T.Conectado"].map(h =>
-                                React.createElement("th", { key: h }, h)
-                            )
-                        )
-                    ),
-                    React.createElement("tbody", null,
-                        ranked.map((ag, i) => React.createElement("tr", { key: ag.nombre+i },
-                            React.createElement("td", { style: { color: i<3?D.gold:D.gray, fontWeight:700 } }, i<3?["🥇","🥈","🥉"][i]:i+1),
-                            React.createElement("td", { style: { fontWeight:700, color:D.text } }, ag.nombre),
-                            React.createElement("td", null, ag.ofrecidas),
-                            React.createElement("td", { style: { fontWeight:700, color:D.blue } }, ag.contestadas),
-                            React.createElement("td", { style: { color: ag.abandonadas>5?D.red:D.textMid } }, ag.abandonadas),
-                            React.createElement("td", null,
-                                React.createElement("div", { style: { display:"flex", alignItems:"center", gap:8 } },
-                                    React.createElement("span", { style: { minWidth:44, fontWeight:700, color: ag.disponibilidad>80?D.green:D.orange } }, `${ag.disponibilidad}%`),
-                                    React.createElement(MiniBar, { pct: ag.disponibilidad, color: ag.disponibilidad>80?D.green:D.orange })
-                                )
-                            ),
-                            React.createElement("td", { style: { color:D.textMid } }, ag.tiempoConectado||"—")
-                        ))
-                    )
-                )
-            )
         )
     );
 }
@@ -995,58 +965,11 @@ function ViewTurnoDir({ informes }) {
             )
         ),
 
-        // Detalle del informe seleccionado
-        selReport && React.createElement("div", { className: "animate-fade" },
-            porTurno.length > 1 && React.createElement("button", {
-                onClick: () => setSelIdx(null),
-                style: { background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: D.textMid, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600, marginBottom: 20, fontFamily: "Inter,sans-serif" }
-            }, "← Volver a la lista"),
-
-            // KPIs del turno
-            React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(4, 1fr)" } },
-                React.createElement(KPICard, { label: "Ofrecidas",   value: (selReport.resumen?.totalOfrecidas     || 0).toLocaleString("es-AR"), icon: "📲", accent: D.purple }),
-                React.createElement(KPICard, { label: "Atendidas",   value: (selReport.resumen?.totalContestadas   || 0).toLocaleString("es-AR"), icon: "📞", accent: D.blue   }),
-                React.createElement(KPICard, { label: "Abandonadas", value: (selReport.resumen?.totalAbandonadas    || 0).toLocaleString("es-AR"), icon: "📉", accent: D.red    }),
-                React.createElement(KPICard, { label: "% Atención",  icon: "🎯", accent: D.green,
-                    value: `${pct(selReport.resumen?.totalContestadas || 0, selReport.resumen?.totalOfrecidas || 1)}%`,
-                    sub: `${selReport.turno?.horaDesde || ""} → ${selReport.turno?.horaHasta || ""}`
-                })
-            ),
-
-            // Tabla de agentes del turno
-            selReport.datos?.agentes?.agents?.length > 0 && React.createElement("div", { className: "dir-card", style: { padding: 0, overflow: "hidden", marginBottom: 20 } },
-                React.createElement("div", { style: { padding: "16px 20px", borderBottom: `1px solid ${D.border}` } },
-                    React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: D.textMid } }, "👤 Operadores en Turno")
-                ),
-                React.createElement("div", { style: { overflowX: "auto" } },
-                    React.createElement("table", { className: "dir-table" },
-                        React.createElement("thead", null,
-                            React.createElement("tr", null,
-                                ["Operador","Ofrecidas","Atendidas","Abandonadas","Disponibilidad"].map(h =>
-                                    React.createElement("th", { key: h }, h)
-                                )
-                            )
-                        ),
-                        React.createElement("tbody", null,
-                            [...(selReport.datos.agentes.agents || [])].sort((a,b) => b.contestadas - a.contestadas).map((ag, i) =>
-                                React.createElement("tr", { key: i },
-                                    React.createElement("td", { style: { fontWeight: 700, color: D.text } }, ag.nombre),
-                                    React.createElement("td", null, ag.ofrecidas),
-                                    React.createElement("td", { style: { fontWeight: 700, color: D.blue } }, ag.contestadas),
-                                    React.createElement("td", { style: { color: ag.abandonadas > 5 ? D.red : D.textMid } }, ag.abandonadas),
-                                    React.createElement("td", null,
-                                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-                                            React.createElement("span", { style: { fontWeight: 700, color: ag.disponibilidad > 80 ? D.green : D.orange, minWidth: 44 } }, `${ag.disponibilidad}%`),
-                                            React.createElement(MiniBar, { pct: ag.disponibilidad, color: ag.disponibilidad > 80 ? D.green : D.orange })
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+        // Detalle del informe seleccionado — Resumen General Ejecutivo (Alineado con sistema principal)
+        selReport && React.createElement(TurnoDetailView, { 
+            report: selReport, 
+            onBack: porTurno.length > 1 ? () => setSelIdx(null) : null 
+        })
     );
 }
 
@@ -1238,7 +1161,7 @@ function ViewPersonalDir({ performance: rawPerf, staff: rawStaff }) {
 function AppDir() {
     const [user,          setUser]          = useState(undefined);  // undefined = cargando
     const [sessionToken,  setSessionToken]  = useState(() => sessionStorage.getItem("dir_token") || null);
-    const [mode,          setMode]          = useState("mensual");  // mensual | turno | personal
+    const [mode,          setMode]          = useState("turno");    // turno | personal (mensual en botón separado)
 
     // Data
     const [informes,     setInformes]     = useState([]);
@@ -1330,7 +1253,6 @@ function AppDir() {
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
     const modeConfig = [
-        { id: "mensual",  label: "📊 Resumen Mensual" },
         { id: "turno",    label: "📋 Reporte por Turno" },
         { id: "personal", label: "👥 Personal" },
     ];
@@ -1359,9 +1281,16 @@ function AppDir() {
                     )
                 ),
 
-                dataLoading && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, color: D.gray, fontSize: 12 } },
-                    React.createElement(Spinner),
-                    React.createElement("span", null, "Cargando datos…")
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+                    React.createElement("button", {
+                        onClick: () => setMode("mensual"),
+                        style: { background: mode === "mensual" ? D.goldBg : "transparent", border: `1px solid ${mode === "mensual" ? D.gold : D.border}`, color: mode === "mensual" ? D.gold : D.textMid, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, transition: "all .2s" }
+                    }, React.createElement("span", null, "📊"), "Resumen Mensual"),
+                    
+                    dataLoading && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, color: D.gray, fontSize: 12 } },
+                        React.createElement(Spinner),
+                        React.createElement("span", null, "Cargando…")
+                    )
                 )
             ),
 
