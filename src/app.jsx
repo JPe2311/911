@@ -1395,6 +1395,7 @@ function ViewResumen({ data }) {
     const tot = ab?.totals || {};
     const pctAtend = tot.ofrecidas ? ((tot.contestadas / tot.ofrecidas) * 100) : 0;
     const pctAband = tot.ofrecidas ? ((tot.abandonadas / tot.ofrecidas) * 100) : 0;
+    const pctCola = tot.ofrecidas ? ((tot.cola / tot.ofrecidas) * 100) : 0;
     const meta = ab?.meta || ag?.meta || {};
 
     const horaData = useMemo(() => {
@@ -1454,10 +1455,11 @@ function ViewResumen({ data }) {
         ),
 
         // --- KPIs PRINCIPALES ---
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 24 } },
             React.createElement(StatKpi, { label: "Total Recibidas", value: tot.ofrecidas?.toLocaleString("es-AR") || "0", sub: "Llamadas totales", accent: C.blue, icon: "📞" }),
             React.createElement(StatKpi, { label: "Llamadas Perdidas", value: tot.abandonadas?.toLocaleString("es-AR") || "0", sub: "Fuera de meta", accent: C.red, icon: "📉" }),
             React.createElement(StatKpi, { label: "% de Abandono", value: `${pctAband.toFixed(1)}%`, sub: "Indicador crítico", accent: pctAband > 15 ? C.red : (pctAband > 8 ? C.orange : C.green), icon: "⚠️" }),
+            React.createElement(StatKpi, { label: "% Abandono Cola", value: `${pctCola.toFixed(1)}%`, sub: "Nivel de Cola", accent: pctCola > 10 ? C.orange : C.blue, icon: "⏳" }),
             React.createElement(StatKpi, { label: "TMO Promedio", value: fmtSeconds(agentsRanking.avgManejo), sub: "Tiempo de atención", accent: C.mid, icon: "⏱️" })
         ),
 

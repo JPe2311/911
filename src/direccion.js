@@ -651,6 +651,7 @@ function TurnoDetailView({ report, onBack }) {
     const totalAb = tot.abandonadas || report.resumen?.totalAbandonadas || 0;
     const pctAband = totalO > 0 ? ((totalAb / totalO) * 100).toFixed(1) : "0.0";
     const pctAtend = totalO > 0 ? ((totalC  / totalO) * 100).toFixed(1) : "0.0";
+    const pctCola  = totalO > 0 ? (( (tot.cola||0) / totalO) * 100).toFixed(1) : "0.0";
 
     // Tiempos de despacho
     const avgSec = arr => arr.length ? Math.round(arr.reduce((s,v) => s+(v.tiempoSec||0),0)/arr.length) : 0;
@@ -737,12 +738,13 @@ function TurnoDetailView({ report, onBack }) {
         ),
 
         // KPIs principales
-        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 24 } },
+        React.createElement("div", { className: "kpi-grid", style: { gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", marginBottom: 24 } },
             React.createElement(KPICard, { label: "Total Ofrecidas",  value: totalO.toLocaleString("es-AR"),  icon: "📲", accent: D.purple, delay:0   }),
             React.createElement(KPICard, { label: "Llamadas Atendidas", value: totalC.toLocaleString("es-AR"),  icon: "📞", accent: D.blue,   delay:60  }),
             React.createElement(KPICard, { label: "Llamadas Perdidas",  value: totalAb.toLocaleString("es-AR"), icon: "📉", accent: D.red,    delay:120 }),
             React.createElement(KPICard, { label: "% Atención",  value: `${pctAtend}%`, icon: "🎯", accent: parseFloat(pctAtend)>85?D.green:D.orange, delay:180 }),
             React.createElement(KPICard, { label: "% Abandono",  value: `${pctAband}%`, icon: "⚠️", accent: pctAbNum>15?D.red:pctAbNum>8?D.orange:D.green, delay:240 }),
+            React.createElement(KPICard, { label: "% Abandono Cola", value: `${pctCola}%`, icon: "⏳", accent: parseFloat(pctCola)>10?D.orange:D.blue, delay:270 }),
             React.createElement(KPICard, { label: "TMO Promedio", value: fmtSeconds(avgManejo), icon: "⏱️", accent: D.gold, delay:300, sub: `${ranked.length} operadores` })
         ),
 
