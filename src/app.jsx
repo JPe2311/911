@@ -108,13 +108,13 @@ function parseAgentes(raw) {
         ofrecidas: 1,
         contestadas: 2,
         abandonadas: 3,
-        aht: undefined,
-        tiempoConectado: undefined,
-        tiempoAvisando: undefined,
-        tiempoAusente: undefined,
-        vozPreparada: undefined,
-        vozNoPreparada: undefined,
-        disponibilidad: undefined,
+        aht: 4, 
+        tiempoConectado: 5,
+        tiempoAvisando: 6,
+        tiempoAusente: 12,
+        vozPreparada: 7,
+        vozNoPreparada: 8,
+        disponibilidad: 11,
     };
     let headerFound = false;
 
@@ -140,7 +140,7 @@ function parseAgentes(raw) {
                 if (key.includes("ofrec")) idx.ofrecidas = j;
                 if (key.includes("contest")) idx.contestadas = j;
                 if (/aband/i.test(key)) idx.abandonadas = j;
-                if (/en servicio|promedio.*atenci/i.test(key)) idx.aht = j;
+                if (/en servicio|promedio.*atenci|aht|tmo/i.test(key)) idx.aht = j;
                 if (/voz preparada|tiempo de atenci/i.test(key)) {
                     // La primera columna de "Voz preparada" suele ser el tiempo, la segunda el %
                     if (idx.vozPreparada === undefined || idx.vozPreparada === 7) idx.vozPreparada = j;
@@ -152,9 +152,9 @@ function parseAgentes(raw) {
                 }
                 
                 // Tiempos específicos (distinguir T. Conectado de T. Avisando)
-                if (/^t\.?\s*conect/i.test(key) || (key.includes("tiempo") && key.includes("conect"))) idx.tiempoConectado = j;
-                if (/^t\.?\s*avis/i.test(key) || (key.includes("tiempo") && key.includes("avis"))) idx.tiempoAvisando = j;
-                if (/^t\.?\s*ausent/i.test(key) || (key.includes("tiempo") && key.includes("ausent"))) idx.tiempoAusente = j;
+                if (/t\.?\s*conect|conectado/i.test(key)) idx.tiempoConectado = j;
+                if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
+                if (/t\.?\s*ausent|ausente/i.test(key)) idx.tiempoAusente = j;
                 
                 if (key.includes("disponib")) idx.disponibilidad = j;
             });
