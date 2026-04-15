@@ -159,11 +159,11 @@ function parseAgentes(raw) {
         if (headerFound && first && first !== "Agente" && !isNaN(parseInt(cols[idx.ofrecidas]))) {
             const nombre = first;
             if (nombre === "Total" || nombre === "Promedio") continue;
-            
+
             const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
             const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
             const ahtSec = parseTimeToSeconds(cols[idx.aht]);
-            
+
             // Preferir el porcentaje directo de la columna si existe
             let pctVoz = 0;
             if (idx.pctVozPrep !== undefined) {
@@ -172,7 +172,7 @@ function parseAgentes(raw) {
                 const totalActivity = vPrepSec + vNoPrepSec;
                 pctVoz = totalActivity > 0 ? parseFloat(((vPrepSec / totalActivity) * 100).toFixed(1)) : 0;
             }
-            
+
             agents.push({
                 nombre,
                 ofrecidas: parseInt(cols[idx.ofrecidas]) || 0,
@@ -802,7 +802,7 @@ async function getGlobalInsights(year = 2026) {
         const db = getDB();
         if (!db) return [];
         const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        
+
         const perfRef = collection(db, "operator_performance");
         const q = query(perfRef, where("year", "==", year));
         const snap = await getDocs(q);
@@ -811,15 +811,15 @@ async function getGlobalInsights(year = 2026) {
 
         const insights = [];
         const monthNum = new Date().getMonth() + 1;
-        
+
         // 1. Tendencia de Abandono
         const currentMonthData = data.filter(d => d.month === monthNum);
         const prevMonthData = data.filter(d => d.month === monthNum - 1);
-        
+
         const getAvgAb = (arr) => arr.length ? arr.reduce((s, v) => s + (v.ab || 0), 0) / arr.length : null;
         const curAvg = getAvgAb(currentMonthData);
         const prevAvg = getAvgAb(prevMonthData);
-        
+
         if (curAvg !== null && prevAvg !== null) {
             const diff = curAvg - prevAvg;
             if (Math.abs(diff) > 0.5) {
@@ -851,7 +851,7 @@ async function getGlobalInsights(year = 2026) {
             const gd = data.filter(d => d.groupName === g);
             return { name: g, ab: getAvgAb(gd) };
         });
-        
+
         const topGroup = [...groupStats].sort((a, b) => a.ab - b.ab)[0];
         if (topGroup) {
             insights.push({
@@ -871,7 +871,7 @@ async function getGlobalInsights(year = 2026) {
             const totalH = od.reduce((s, v) => s + (v.totalConectado || 0), 0) / 3600;
             return { name: od[0]?.name, prod: totalH > 1 ? totalC / totalH : 0 };
         }).filter(o => o.prod > 0);
-        
+
         const bestOp = [...opStats].sort((a, b) => b.prod - a.prod)[0];
         if (bestOp) {
             insights.push({
@@ -1222,7 +1222,7 @@ function ViewReporteHistorial({ data }) {
     const agentsRanking = useMemo(() => {
         if (!ag?.agents?.length) return { top: [], bot: [] };
         let main = ag.agents.filter(a => a.ofrecidas >= 20);
-        
+
         if (groupFilter !== "all") {
             main = main.filter(a => {
                 const norm = normalizeName(a.nombre);
@@ -1427,7 +1427,7 @@ function ViewResumen({ data }) {
     const agentsRanking = useMemo(() => {
         if (!ag?.agents?.length) return { top: [], bot: [] };
         let main = ag.agents.filter(a => a.ofrecidas >= 20);
-        
+
         if (groupFilter !== "all") {
             main = main.filter(a => {
                 const norm = normalizeName(a.nombre);
@@ -1542,8 +1542,8 @@ function ViewResumen({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta (SLA)"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 180 },
-                        { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 60 },
+                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
                         { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
@@ -1978,9 +1978,9 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                             React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
                         )
                     ),
-                    onLoadReport && React.createElement("button", { 
+                    onLoadReport && React.createElement("button", {
                         onClick: () => onLoadReport(selectedReport),
-                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 4px 12px rgba(16,185,129,0.2)" } 
+                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 4px 12px rgba(16,185,129,0.2)" }
                     }, "⚡ Cargar en Dashboard")
                 ),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
@@ -4123,7 +4123,7 @@ function PanelGlobalInsights({ user }) {
             insights.map((ins, i) => {
                 const color = ins.type === "red" ? C.red : ins.type === "green" ? C.green : ins.type === "orange" ? C.orange : C.blue;
                 const bg = ins.type === "red" ? C.redBg : ins.type === "green" ? C.greenBg : ins.type === "orange" ? C.orBg : C.light;
-                
+
                 return React.createElement("div", { key: i, style: { background: "#fff", borderLeft: `5px solid ${color}`, borderRadius: 12, padding: "14px 18px", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", display: "flex", gap: 14, alignItems: "center" } },
                     React.createElement("div", { style: { width: 40, height: 40, borderRadius: "10px", background: bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 } }, ins.icon),
                     React.createElement("div", { style: { flex: 1 } },
@@ -4308,14 +4308,14 @@ function App() {
                 !hasData && React.createElement("button", { onClick: () => setView("historial"), style: { background: view === "historial" ? "rgba(255,255,255,0.18)" : "transparent", border: view === "historial" ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent", color: view === "historial" ? "#fff" : "#94a3b8", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" } }, "📋 Historial"),
 
                 // Personal nav (siempre visible)
-                React.createElement("button", { 
-                    onClick: () => setView("personal"), 
-                    style: { 
-                        background: view === "personal" ? "rgba(255,255,255,0.18)" : "transparent", 
-                        border: view === "personal" ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent", 
-                        color: view === "personal" ? "#fff" : "#94a3b8", 
-                        borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" 
-                    } 
+                React.createElement("button", {
+                    onClick: () => setView("personal"),
+                    style: {
+                        background: view === "personal" ? "rgba(255,255,255,0.18)" : "transparent",
+                        border: view === "personal" ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent",
+                        color: view === "personal" ? "#fff" : "#94a3b8",
+                        borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer"
+                    }
                 }, "👥 Personal"),
 
                 hasData && React.createElement("label", { title: "Agregar más archivos", style: { background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600, position: "relative" } },
@@ -4447,10 +4447,10 @@ function App() {
             view === "reporte_historial" && React.createElement(ViewReporteHistorial, { data: files }),
             view === "mensual" && React.createElement(ViewMensual, { user, onBack: () => setView("upload") }),
             view === "comparativa_grupos" && React.createElement(ViewComparativaGrupos, { user, onBack: () => setView("upload") }),
-            view === "historial" && React.createElement(ViewHistorial, { 
-                user, 
-                onBack: () => setView("upload"), 
-                onLoadReport: (rep) => { 
+            view === "historial" && React.createElement(ViewHistorial, {
+                user,
+                onBack: () => setView("upload"),
+                onLoadReport: (rep) => {
                     const raw = rep.datos || {};
                     const normalized = { ...raw };
 
@@ -4461,17 +4461,17 @@ function App() {
                     if (Array.isArray(raw.abandonadas)) {
                         normalized.abandonadas = { intervals: raw.abandonadas, totals: raw.abandonadasResumen || {}, meta: {} };
                     }
-                    
-                    setFiles(normalized); 
+
+                    setFiles(normalized);
                     const types = [];
                     if (normalized.agentes?.agents?.length) types.push("agentes");
                     if (normalized.abandonadas?.intervals?.length) types.push("abandonadas");
                     if (normalized.despachoInicio?.length) types.push("despacho-inicio");
                     if (normalized.despachoDerivacion?.length) types.push("despacho-derivacion");
                     if (normalized.despachoCreacion?.length) types.push("despacho-creacion");
-                    setLoaded(types); 
-                    setView("reporte_historial"); 
-                } 
+                    setLoaded(types);
+                    setView("reporte_historial");
+                }
             }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
