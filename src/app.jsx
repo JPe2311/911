@@ -108,11 +108,13 @@ function parseAgentes(raw) {
         ofrecidas: 1,
         contestadas: 2,
         abandonadas: 3,
-        aht: 5,
-        tiempoConectado: 6,
-        vozPreparada: 7,
-        vozNoPreparada: 8,
-        disponibilidad: 10, // Default based on snippet
+        aht: undefined,
+        tiempoConectado: undefined,
+        tiempoAvisando: undefined,
+        tiempoAusente: undefined,
+        vozPreparada: undefined,
+        vozNoPreparada: undefined,
+        disponibilidad: undefined,
     };
     let headerFound = false;
 
@@ -148,8 +150,12 @@ function parseAgentes(raw) {
                     if (idx.vozNoPreparada === undefined || idx.vozNoPreparada === 8) idx.vozNoPreparada = j;
                     else idx.pctVozNoPrep = j;
                 }
-                if (/tiempo.*conect|t\.?\s*conect/i.test(key)) idx.tiempoConectado = j;
-                if (/tiempo.*ausent|t\.?\s*ausent/i.test(key)) idx.tiempoAusente = j;
+                
+                // Tiempos específicos (distinguir T. Conectado de T. Avisando)
+                if (/^t\.?\s*conect/i.test(key) || (key.includes("tiempo") && key.includes("conect"))) idx.tiempoConectado = j;
+                if (/^t\.?\s*avis/i.test(key) || (key.includes("tiempo") && key.includes("avis"))) idx.tiempoAvisando = j;
+                if (/^t\.?\s*ausent/i.test(key) || (key.includes("tiempo") && key.includes("ausent"))) idx.tiempoAusente = j;
+                
                 if (key.includes("disponib")) idx.disponibilidad = j;
             });
             continue;
@@ -180,11 +186,13 @@ function parseAgentes(raw) {
                 abandonadas: parseInt(cols[idx.abandonadas]) || 0,
                 aht: ahtSec,
                 tiempoConectado: cols[idx.tiempoConectado] || "0:00:00",
+                tiempoAvisando: cols[idx.tiempoAvisando] || "0:00:00",
                 tiempoAusente: cols[idx.tiempoAusente] || "0:00:00",
                 tiempoManejo: ahtSec, // Usamos AHT para el "Promedio de atención"
                 totalPreparado: vPrepSec,
                 totalNoPreparado: vNoPrepSec,
                 pctVozPreparada: pctVoz,
+                pctAbandonoCabina: (parseInt(cols[idx.ofrecidas]) > 0) ? parseFloat(((parseInt(cols[idx.abandonadas]) / parseInt(cols[idx.ofrecidas])) * 100).toFixed(1)) : 0,
                 disponibilidad: parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
             });
             continue;
@@ -1773,7 +1781,7 @@ function ViewOperadores({ data }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: C.blue } },
-                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Ausente", "Disponibilidad"].map(h =>
+                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "T. Ausente", "Disponibilidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Operador" ? "left" : "center", fontSize: 11 } }, h)
                             )
                         )
@@ -1787,6 +1795,7 @@ function ViewOperadores({ data }) {
                             ),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, React.createElement(Badge, { label: a.abandonadas, color: a.abandonadas > 50 ? C.red : C.green, bg: a.abandonadas > 50 ? C.redBg : C.greenBg })),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoConectado),
+                            React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoAvisando),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace" } },
                                 React.createElement("span", { style: { color: parseTimeToSeconds(a.tiempoAusente) > 7200 ? C.red : "#334155", fontWeight: parseTimeToSeconds(a.tiempoAusente) > 7200 ? 700 : 400 } }, a.tiempoAusente)
                             ),
