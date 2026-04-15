@@ -105,19 +105,20 @@ function parseAgentes(raw) {
     let meta = {};
     const idx = {
         nombre: 0,
-        codigo: 1,
-        ofrecidas: 2,
-        contestadas: 3,
-        abandonadas: 5,
-        tiempoConectado: 10,
-        tiempoAusente: 11,
-        disponibilidad: 14,
+        ofrecidas: 1,
+        contestadas: 2,
+        abandonadas: 3,
+        aht: 5,
+        tiempoConectado: 6,
+        vozPreparada: 7,
+        vozNoPreparada: 8,
+        disponibilidad: 10, // Default based on snippet
     };
     let headerFound = false;
 
     for (let i = 0; i < lines.length; i++) {
         const cols = parseSemicolon(lines[i]);
-        if (!cols.length) continue;
+        if (!cols.length || cols.length < 2) continue;
         const first = (cols[0] || "").trim();
 
         if (first === "Fecha del informe:" && cols[1]) {
@@ -137,8 +138,16 @@ function parseAgentes(raw) {
                 if (key.includes("ofrec")) idx.ofrecidas = j;
                 if (key.includes("contest")) idx.contestadas = j;
                 if (/aband/i.test(key)) idx.abandonadas = j;
-                if (/voz preparada/i.test(key)) idx.vozPreparada = j;
-                if (/voz no preparada/i.test(key)) idx.vozNoPreparada = j;
+                if (/en servicio|promedio.*atenci/i.test(key)) idx.aht = j;
+                if (/voz preparada|tiempo de atenci/i.test(key)) {
+                    // La primera columna de "Voz preparada" suele ser el tiempo, la segunda el %
+                    if (idx.vozPreparada === undefined || idx.vozPreparada === 7) idx.vozPreparada = j;
+                    else idx.pctVozPrep = j;
+                }
+                if (/voz no preparada/i.test(key)) {
+                    if (idx.vozNoPreparada === undefined || idx.vozNoPreparada === 8) idx.vozNoPreparada = j;
+                    else idx.pctVozNoPrep = j;
+                }
                 if (/tiempo.*conect|t\.?\s*conect/i.test(key)) idx.tiempoConectado = j;
                 if (/tiempo.*ausent|t\.?\s*ausent/i.test(key)) idx.tiempoAusente = j;
                 if (key.includes("disponib")) idx.disponibilidad = j;
@@ -146,25 +155,45 @@ function parseAgentes(raw) {
             continue;
         }
 
-        if (cols[1] && cols[1].startsWith("SG_") && first && first !== "Agente") {
+        // Validación de fila de agente: debe tener nombre y la columna de ofrecidas debe ser un número
+        if (headerFound && first && first !== "Agente" && !isNaN(parseInt(cols[idx.ofrecidas]))) {
             const nombre = first;
             if (nombre === "Total" || nombre === "Promedio") continue;
+            
+            const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
+            const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
+            const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+            
+            // Preferir el porcentaje directo de la columna si existe
+            let pctVoz = 0;
+            if (idx.pctVozPrep !== undefined) {
+                pctVoz = parseFloat((cols[idx.pctVozPrep] || "0").replace(",", ".")) || 0;
+            } else {
+                const totalActivity = vPrepSec + vNoPrepSec;
+                pctVoz = totalActivity > 0 ? parseFloat(((vPrepSec / totalActivity) * 100).toFixed(1)) : 0;
+            }
+            
             agents.push({
                 nombre,
                 ofrecidas: parseInt(cols[idx.ofrecidas]) || 0,
                 contestadas: parseInt(cols[idx.contestadas]) || 0,
                 abandonadas: parseInt(cols[idx.abandonadas]) || 0,
+                aht: ahtSec,
                 tiempoConectado: cols[idx.tiempoConectado] || "0:00:00",
                 tiempoAusente: cols[idx.tiempoAusente] || "0:00:00",
+                tiempoManejo: ahtSec, // Usamos AHT para el "Promedio de atención"
+                totalPreparado: vPrepSec,
+                totalNoPreparado: vNoPrepSec,
+                pctVozPreparada: pctVoz,
                 disponibilidad: parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
             });
             continue;
         }
 
-        if (first === "Total" && cols[1] === "-") {
-            meta.totalOfrecidas = parseInt(cols[idx.ofrecidas]) || parseInt(cols[2]) || 0;
-            meta.totalContestadas = parseInt(cols[idx.contestadas]) || parseInt(cols[3]) || 0;
-            meta.totalAbanCabina = parseInt(cols[idx.abandonadas]) || parseInt(cols[5]) || 0;
+        if (first === "Total" && cols.length > 3) {
+            meta.totalOfrecidas = parseInt(cols[idx.ofrecidas]) || 0;
+            meta.totalContestadas = parseInt(cols[idx.contestadas]) || 0;
+            meta.totalAbanCabina = parseInt(cols[idx.abandonadas]) || 0;
         }
     }
 
@@ -320,27 +349,52 @@ function parseNominaCSV(raw) {
 function parseOperadoresMensualCSV(raw, month, year) {
     const lines = parseLines(raw);
     const result = [];
+    const idx = { name: 0, o: 1, c: 2, ab: 3, aht: 5, connected: 6, vPrepTime: 7, vNoPrepTime: 8, vPrepPct: 9 };
+
     lines.forEach((l, i) => {
-        if (!l.trim() || i === 0 && l.toUpperCase().includes("AGENTE")) return;
+        if (!l.trim()) return;
         const cols = l.split(";");
-        if (cols.length < 11) return;
-        // Agente;Ofrecidas;Contestadas;Abandonadas;Avisando;En servicio;Conectado;Voz preparada;Voz no preparada;Voz preparada;Voz no preparada
-        const name = cols[0]?.trim();
+        if (cols.length < 9) return;
+
+        // Detectar cabecera para ajustar índices si es necesario
+        if (cols.some(c => /agente/i.test(c)) && cols.some(c => /ofrec/i.test(c))) {
+            cols.forEach((h, j) => {
+                const head = (h || "").toLowerCase();
+                if (head.includes("agente")) idx.name = j;
+                if (head.includes("ofrec")) idx.o = j;
+                if (head.includes("contest")) idx.c = j;
+                if (head.includes("aband")) idx.ab = j;
+                if (/en servicio|promedio.*atenci/i.test(head)) idx.aht = j;
+                if (/conectado/i.test(head)) idx.connected = j;
+                if (/voz preparada/i.test(head)) {
+                    if (idx.vPrepTime === undefined || idx.vPrepTime === 7) idx.vPrepTime = j;
+                    else idx.vPrepPct = j;
+                }
+            });
+            return;
+        }
+
+        const name = cols[idx.name]?.trim();
+        if (!name || name.toLowerCase() === "total" || name.toLowerCase() === "promedio" || name.toLowerCase() === "agente") return;
+
+        const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+        const vPrepPct = idx.vPrepPct !== undefined ? (parseFloat((cols[idx.vPrepPct] || "0").replace(",", ".")) || 0) : 0;
+
         result.push({
             name,
             normName: normalizeName(name),
             month,
             year,
-            o: parseInt(cols[1]) || 0,
-            c: parseInt(cols[2]) || 0,
-            ab: parseInt(cols[3]) || 0,
-            avgAvisando: parseTimeToSeconds(cols[4]),
-            avgManejo: parseTimeToSeconds(cols[5]),
-            totalConectado: parseTimeToSeconds(cols[6]),
-            totalPreparado: parseTimeToSeconds(cols[7]),
-            totalNoPreparado: parseTimeToSeconds(cols[8]),
-            pctProd: parseFloat(cols[9].replace(",", ".")) || 0,
-            pctNoProd: parseFloat(cols[10].replace(",", ".")) || 0
+            o: parseInt(cols[idx.o]) || 0,
+            c: parseInt(cols[idx.c]) || 0,
+            ab: parseInt(cols[idx.ab]) || 0,
+            // 'manejo' es el AHT Promedio para los KPIs
+            manejo: ahtSec,
+            totalConectado: parseTimeToSeconds(cols[idx.connected]),
+            totalPreparado: parseTimeToSeconds(cols[idx.vPrepTime]),
+            pctVozPreparada: vPrepPct,
+            // Compatibilidad
+            pctProd: vPrepPct,
         });
     });
     return result;
@@ -1278,8 +1332,8 @@ function ViewReporteHistorial({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta Registrados"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 180 },
-                        { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 60 },
+                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
                         { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
@@ -1445,8 +1499,7 @@ function ViewResumen({ data }) {
         // --- HEADER MAESTRO ---
         React.createElement("div", { style: { background: `linear-gradient(135deg, ${C.navy} 0%, ${C.blue} 60%, ${C.mid} 100%)`, borderRadius: 16, padding: "32px", marginBottom: 24, color: "#fff", boxShadow: "0 10px 30px rgba(27,58,107,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
             React.createElement("div", null,
-                React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: "#93c5fd", letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 } }, "Dirección de Comando de Gobierno y Coordinación"),
-                React.createElement("h1", { style: { fontSize: 32, fontWeight: 950, margin: 0, letterSpacing: "-0.8px" } }, "Resumen General de Gestión — SAE 911"),
+                React.createElement("h1", { style: { fontSize: 32, fontWeight: 950, margin: 0, letterSpacing: "-0.8px" } }, "Resumen Estadístico 911"),
                 React.createElement("div", { style: { fontSize: 15, color: "#cbd5e1", marginTop: 6, fontWeight: 500 } }, `🗓 ${turnoLabel}`)
             ),
             React.createElement("div", { style: { textAlign: "right" } },

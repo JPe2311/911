@@ -490,7 +490,7 @@ function ViewMensualDir({ mensual }) {
 
     // Totales acumulados del filtro
     const totals = useMemo(() => {
-        const acc = { totalC: 0, totalO: 0, totalAb: 0, records: 0 };
+        const acc = { totalC: 0, totalO: 0, totalAb: 0, totalManejo: 0, countManejo: 0, records: 0 };
         filtered.forEach(m => {
             const rows = m.detalles || m.dailyAggr || m.rows || m.operadores || [];
             if (rows.length > 0) {
@@ -498,12 +498,20 @@ function ViewMensualDir({ mensual }) {
                     acc.totalO  += (r.o  || r.ofrecidas || 0);
                     acc.totalC  += (r.c  || r.contestadas || 0);
                     acc.totalAb += (r.ab || r.abandonadas || 0);
+                    if (r.manejo || r.avgManejo) {
+                        acc.totalManejo += (r.manejo || r.avgManejo || 0);
+                        acc.countManejo++;
+                    }
                     acc.records++;
                 });
             } else if (m.resumen) {
                 acc.totalO  += m.resumen.totalOfrecidas || 0;
                 acc.totalC  += m.resumen.totalContestadas || 0;
                 acc.totalAb += m.resumen.totalAbandonadas || 0;
+                if (m.resumen.avgManejo) {
+                    acc.totalManejo += m.resumen.avgManejo;
+                    acc.countManejo++;
+                }
                 acc.records++;
             }
         });
@@ -568,7 +576,8 @@ function ViewMensualDir({ mensual }) {
             React.createElement(KPICard, { label: "Llamadas Ofrecidas",  value: totals.totalO.toLocaleString("es-AR"),  icon: "📲", accent: D.purple, delay: 80  }),
             React.createElement(KPICard, { label: "Abandonadas",         value: totals.totalAb.toLocaleString("es-AR"), icon: "📉", accent: D.red,    delay: 160 }),
             React.createElement(KPICard, { label: "% Atención",         value: `${pct(totals.totalC, totals.totalO)}%`, icon: "🎯", accent: D.green,  delay: 240,
-                sub: totals.totalO > 0 ? `${totals.totalC} de ${totals.totalO}` : "" })
+                sub: totals.totalO > 0 ? `${totals.totalC} de ${totals.totalO}` : "" }),
+            React.createElement(KPICard, { label: "TMO Promedio",       value: fmtSeconds(totals.countManejo ? Math.round(totals.totalManejo / totals.countManejo) : 0), icon: "⏱️", accent: D.gold, delay: 320 })
         ),
 
         // Gráfico
@@ -586,7 +595,7 @@ function ViewMensualDir({ mensual }) {
                 React.createElement("table", { className: "dir-table" },
                     React.createElement("thead", null,
                         React.createElement("tr", null,
-                            ["Mes", "Año", "Operadores", "Ofrecidas", "Contestadas", "Abandonadas", "% Atención"].map(h =>
+                            ["Mes", "Año", "Operadores", "Ofrecidas", "Contestadas", "Abandonadas", "TMO", "% Atención"].map(h =>
                                 React.createElement("th", { key: h }, h)
                             )
                         )
@@ -600,13 +609,16 @@ function ViewMensualDir({ mensual }) {
                                 sumO  = rows.reduce((s,r) => s + (r.o  || r.ofrecidas || 0), 0);
                                 sumC  = rows.reduce((s,r) => s + (r.c  || r.contestadas || 0), 0);
                                 sumAb = rows.reduce((s,r) => s + (r.ab || r.abandonadas || 0), 0);
+                                sumM  = rows.reduce((s,r) => s + (r.manejo || r.avgManejo || 0), 0);
                                 rowLen = rows.length;
                             } else if (m.resumen) {
                                 sumO = m.resumen.totalOfrecidas || 0;
                                 sumC = m.resumen.totalContestadas || 0;
                                 sumAb = m.resumen.totalAbandonadas || 0;
+                                sumM = m.resumen.avgManejo || 0;
                                 rowLen = 0;
                             }
+                            const avgM = rowLen > 0 ? Math.round(sumM / rowLen) : (sumM || 0);
                             const pctAt = pct(sumC, sumO);
                             return React.createElement("tr", { key: i },
                                 React.createElement("td", { style: { fontWeight: 800, color: D.gold } }, MONTH_NAMES[m.meta?.monthNum] || "—"),
@@ -615,6 +627,7 @@ function ViewMensualDir({ mensual }) {
                                 React.createElement("td", null, sumO.toLocaleString("es-AR")),
                                 React.createElement("td", { style: { fontWeight: 700, color: D.blue } }, sumC.toLocaleString("es-AR")),
                                 React.createElement("td", { style: { color: sumAb > 0 ? D.red : D.textMid } }, sumAb.toLocaleString("es-AR")),
+                                React.createElement("td", { style: { fontWeight: 600, color: D.gold } }, fmtSeconds(avgM)),
                                 React.createElement("td", null,
                                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                         React.createElement("span", { style: { fontWeight: 800, color: parseFloat(pctAt) > 85 ? D.green : parseFloat(pctAt) > 70 ? D.orange : D.red, minWidth: 44 } }, `${pctAt}%`),
