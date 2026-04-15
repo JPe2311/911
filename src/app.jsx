@@ -156,7 +156,8 @@ function parseAgentes(raw) {
                 if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
                 if (/t\.?\s*ausent|ausente/i.test(key)) idx.tiempoAusente = j;
                 
-                if (key.includes("disponib")) idx.disponibilidad = j;
+                if (/disponib.*%/i.test(key)) idx.disponibilidad = j;
+                else if (key.includes("disponib") && (idx.disponibilidad === undefined || idx.disponibilidad === 11)) idx.disponibilidad = j;
             });
             continue;
         }
@@ -165,18 +166,19 @@ function parseAgentes(raw) {
         if (headerFound && first && first !== "Agente" && !isNaN(parseInt(cols[idx.ofrecidas]))) {
             const nombre = first;
             if (nombre === "Total" || nombre === "Promedio") continue;
-
             const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
             const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
             const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+            const totalConectSec = parseTimeToSeconds(cols[idx.tiempoConectado]);
 
             // Preferir el porcentaje directo de la columna si existe
             let pctVoz = 0;
-            if (idx.pctVozPrep !== undefined) {
+            if (idx.pctVozPrep !== undefined && cols[idx.pctVozPrep]) {
                 pctVoz = parseFloat((cols[idx.pctVozPrep] || "0").replace(",", ".")) || 0;
             } else {
-                const totalActivity = vPrepSec + vNoPrepSec;
-                pctVoz = totalActivity > 0 ? parseFloat(((vPrepSec / totalActivity) * 100).toFixed(1)) : 0;
+                // Denominador: Tiempo Conectado es más real que la suma de estados parciales
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctVoz = denom > 0 ? parseFloat(((vPrepSec / denom) * 100).toFixed(1)) : 0;
             }
 
             agents.push({
