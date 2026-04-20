@@ -112,8 +112,8 @@ function parseAgentes(raw) {
         tiempoConectado: 6,
         tiempoAvisando: 7,
         tiempoAusente: 13,
-        vozPreparada: 8,
-        vozNoPreparada: 9,
+        vozPreparada: 10,
+        vozNoPreparada: 11,
         disponibilidad: 12,
     };
     let headerFound = false;
@@ -189,7 +189,7 @@ function parseAgentes(raw) {
                 aht: ahtSec,
                 tiempoConectado: cols[idx.tiempoConectado] || "0:00:00",
                 tiempoAvisando: cols[idx.tiempoAvisando] || "0:00:00",
-                tiempoAusente: cols[idx.tiempoAusente] || "0:00:00",
+                tiempoAusente: cols[idx.vozNoPreparada] || "0:00:00",
                 tiempoManejo: ahtSec, // Usamos AHT para el "Promedio de atención"
                 totalPreparado: vPrepSec,
                 totalNoPreparado: vNoPrepSec,
@@ -1672,7 +1672,7 @@ function AutoAlertas({ data }) {
         }
         if (data.agentes?.agents) {
             const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
-            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: voz inactiva elevada (${a.tiempoAusente} hs)` }); });
+            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: voz no preparada elevada (${a.tiempoAusente} hs)` }); });
             main.forEach(a => { if (a.abandonadas > 50) list.push({ type: "orange", msg: `${a.nombre}: ${a.abandonadas} abandonadas en cabina — revisar` }); });
         }
         const allDespacho = [...(data.despachoInicio || []), ...(data.despachoDerivacion || []), ...(data.despachoCreacion || [])];
@@ -1783,7 +1783,7 @@ function ViewOperadores({ data }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: C.blue } },
-                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "Voz Inactiva", "Disponibilidad"].map(h =>
+                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "Voz No Preparada", "Disponibilidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Operador" ? "left" : "center", fontSize: 11 } }, h)
                             )
                         )
