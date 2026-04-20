@@ -1783,7 +1783,7 @@ function ViewOperadores({ data }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: C.blue } },
-                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "T. Ausente", "Disponibilidad"].map(h =>
+                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "Voz Inactiva", "Disponibilidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Operador" ? "left" : "center", fontSize: 11 } }, h)
                             )
                         )
