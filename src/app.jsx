@@ -181,6 +181,11 @@ function parseAgentes(raw) {
                 pctVoz = denom > 0 ? parseFloat(((vPrepSec / denom) * 100).toFixed(1)) : 0;
             }
 
+            // Calculate Disponibilidad: (Tiempo Conectado - Voz No Preparada) / Tiempo Conectado
+            const calcDisponibilidad = totalConectSec > 0 
+                ? parseFloat((((totalConectSec - vNoPrepSec) / totalConectSec) * 100).toFixed(1))
+                : 0;
+
             agents.push({
                 nombre,
                 ofrecidas: parseInt(cols[idx.ofrecidas]) || 0,
@@ -195,7 +200,7 @@ function parseAgentes(raw) {
                 totalNoPreparado: vNoPrepSec,
                 pctVozPreparada: pctVoz,
                 pctAbandonoCabina: (parseInt(cols[idx.ofrecidas]) > 0) ? parseFloat(((parseInt(cols[idx.abandonadas]) / parseInt(cols[idx.ofrecidas])) * 100).toFixed(1)) : 0,
-                disponibilidad: parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
+                disponibilidad: calcDisponibilidad,
             });
             continue;
         }
