@@ -105,16 +105,16 @@ function parseAgentes(raw) {
     let meta = {};
     const idx = {
         nombre: 0,
-        ofrecidas: 1,
-        contestadas: 2,
-        abandonadas: 3,
-        aht: 4, 
-        tiempoConectado: 5,
-        tiempoAvisando: 6,
-        tiempoAusente: 12,
-        vozPreparada: 7,
-        vozNoPreparada: 8,
-        disponibilidad: 11,
+        ofrecidas: 2,
+        contestadas: 3,
+        abandonadas: 4,
+        aht: 5, 
+        tiempoConectado: 6,
+        tiempoAvisando: 7,
+        tiempoAusente: 13,
+        vozPreparada: 8,
+        vozNoPreparada: 9,
+        disponibilidad: 12,
     };
     let headerFound = false;
 
@@ -1672,7 +1672,7 @@ function AutoAlertas({ data }) {
         }
         if (data.agentes?.agents) {
             const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
-            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: tiempo ausente elevado (${a.tiempoAusente} hs)` }); });
+            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: voz inactiva elevada (${a.tiempoAusente} hs)` }); });
             main.forEach(a => { if (a.abandonadas > 50) list.push({ type: "orange", msg: `${a.nombre}: ${a.abandonadas} abandonadas en cabina — revisar` }); });
         }
         const allDespacho = [...(data.despachoInicio || []), ...(data.despachoDerivacion || []), ...(data.despachoCreacion || [])];
