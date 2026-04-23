@@ -777,6 +777,46 @@ async function getGroups() {
     return Array.from(groups).sort();
 }
 
+async function deleteStaff(normName) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await deleteDoc(doc(db, "staff", normName));
+}
+
+const DEFAULT_TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "Administrativo", "Otro"];
+const DEFAULT_AREAS = ["Atención al Público", "Supervisión", "Backoffice", "Coordinación", "Otro"];
+
+async function getConfigTurnos() {
+    const db = getDB();
+    if (!db) return DEFAULT_TURNOS;
+    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDoc(doc(db, "config", "turnos"));
+    return snap.exists() ? snap.data().lista : DEFAULT_TURNOS;
+}
+
+async function saveConfigTurnos(lista) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "config", "turnos"), { lista }, { merge: true });
+}
+
+async function getConfigAreas() {
+    const db = getDB();
+    if (!db) return DEFAULT_AREAS;
+    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDoc(doc(db, "config", "areas"));
+    return snap.exists() ? snap.data().lista : DEFAULT_AREAS;
+}
+
+async function saveConfigAreas(lista) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "config", "areas"), { lista }, { merge: true });
+}
+
 async function saveOperatorPerformance(list, month, year) {
     const db = getDB();
     if (!db) return;
@@ -4095,17 +4135,27 @@ function RowStat({ label, value, color }) {
 function ViewGestorPersonal({ user, onBack }) {
     const [staff, setStaff] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(null); // normName being saved
+    const [saving, setSaving] = useState(null);
     const [searchTerm, setSearchTerm] = useState("");
+    const [turnos, setTurnos] = useState(DEFAULT_TURNOS);
+    const [areas, setAreas] = useState(DEFAULT_AREAS);
+    const [editTurnos, setEditTurnos] = useState(false);
+    const [editAreas, setEditAreas] = useState(false);
+    const [tempTurnos, setTempTurnos] = useState("");
+    const [tempAreas, setTempAreas] = useState("");
 
     const loadStaff = async () => {
         setLoading(true);
-        const [registered, performance] = await Promise.all([
+        const [registered, performance, tList, aList] = await Promise.all([
             getStaffList(),
-            getUniqueOperators()
+            getUniqueOperators(),
+            getConfigTurnos(),
+            getConfigAreas()
         ]);
 
-        // Merge sources: ensure all unique operators seen in performance reports are listed
+        setTurnos(tList);
+        setAreas(aList);
+
         const masterList = [...registered];
         performance.forEach(op => {
             if (!masterList.find(s => s.normName === op.normName)) {
@@ -4119,8 +4169,19 @@ function ViewGestorPersonal({ user, onBack }) {
 
     useEffect(() => { loadStaff(); }, []);
 
-    const TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "Administrativo", "Otro"];
-    const AREAS = ["Atención al Público", "Supervisión", "Backoffice", "Coordinación", "Otro"];
+    const handleSaveTurnos = async () => {
+        const lista = tempTurnos.split("\n").map(t => t.trim()).filter(t => t);
+        await saveConfigTurnos(lista);
+        setTurnos(lista);
+        setEditTurnos(false);
+    };
+
+    const handleSaveAreas = async () => {
+        const lista = tempAreas.split("\n").map(a => a.trim()).filter(a => a);
+        await saveConfigAreas(lista);
+        setAreas(lista);
+        setEditAreas(false);
+    };
 
     const handleUpdateTurno = async (normName, newTurno) => {
         setSaving(normName);
@@ -4140,6 +4201,36 @@ function ViewGestorPersonal({ user, onBack }) {
         setSaving(normName);
         await updateStaffGroup(normName, group);
         setStaff(prev => prev.map(s => s.normName === normName ? { ...s, grupo: group } : s));
+        setSaving(null);
+    };
+
+    const handleUpdateTurnoDirect = async (normName, newTurno) => {
+        setSaving(normName);
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
+            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, turno: newTurno } : s));
+        }
+        setSaving(null);
+    };
+
+    const handleUpdateAreaDirect = async (normName, newArea) => {
+        setSaving(normName);
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            await setDoc(doc(db, "staff", normName), { area: newArea }, { merge: true });
+            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, area: newArea } : s));
+        }
+        setSaving(null);
+    };
+
+    const handleDelete = async (normName, name) => {
+        if (!confirm(`¿Eliminar a "${name}" del personal?`)) return;
+        setSaving(normName);
+        await deleteStaff(normName);
+        setStaff(prev => prev.filter(s => s.normName !== normName));
         setSaving(null);
     };
 
@@ -4183,7 +4274,7 @@ function ViewGestorPersonal({ user, onBack }) {
             React.createElement("div", { style: { position: "relative" } },
                 React.createElement("input", {
                     type: "text",
-                    placeholder: "Buscar por nombre o grupo...",
+                    placeholder: "Buscar por nombre, turno, área o grupo...",
                     value: searchTerm,
                     onChange: e => setSearchTerm(e.target.value),
                     style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 280, color: C.navy }
@@ -4198,14 +4289,14 @@ function ViewGestorPersonal({ user, onBack }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Operador", "Turno", "Área", "Grupo / Célula"].map(h =>
+                            ["Operador", "Turno", "Área", "Grupo / Célula", ""].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
                     ),
                     React.createElement("tbody", null,
-                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
-                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
+                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 5, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
+                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 5, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
                                 filteredStaff.map((s, i) => (
                                     React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -4221,7 +4312,7 @@ function ViewGestorPersonal({ user, onBack }) {
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("select", {
                                                 value: s.turno || "",
-                                                onChange: e => handleUpdateTurno(s.normName, e.target.value),
+                                                onChange: e => handleUpdateTurnoDirect(s.normName, e.target.value),
                                                 style: {
                                                     padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
                                                     fontSize: 13, fontWeight: 700, color: s.turno ? C.navy : C.gray,
@@ -4229,13 +4320,13 @@ function ViewGestorPersonal({ user, onBack }) {
                                                 }
                                             },
                                                 React.createElement("option", { value: "" }, "Seleccionar..."),
-                                                TURNOS.map(t => React.createElement("option", { key: t, value: t }, t))
+                                                turnos.map(t => React.createElement("option", { key: t, value: t }, t))
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("select", {
                                                 value: s.area || "",
-                                                onChange: e => handleUpdateArea(s.normName, e.target.value),
+                                                onChange: e => handleUpdateAreaDirect(s.normName, e.target.value),
                                                 style: {
                                                     padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
                                                     fontSize: 13, fontWeight: 700, color: s.area ? C.navy : C.gray,
@@ -4243,7 +4334,7 @@ function ViewGestorPersonal({ user, onBack }) {
                                                 }
                                             },
                                                 React.createElement("option", { value: "" }, "Seleccionar..."),
-                                                AREAS.map(a => React.createElement("option", { key: a, value: a }, a))
+                                                areas.map(a => React.createElement("option", { key: a, value: a }, a))
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -4259,6 +4350,17 @@ function ViewGestorPersonal({ user, onBack }) {
                                                     width: "100%", outline: "none"
                                                 }
                                             })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px", textAlign: "center" } },
+                                            React.createElement("button", {
+                                                onClick: () => handleDelete(s.normName, s.name),
+                                                disabled: saving === s.normName,
+                                                style: {
+                                                    background: "transparent", border: "none", cursor: "pointer",
+                                                    fontSize: 16, opacity: saving === s.normName ? 0.5 : 0.7
+                                                },
+                                                title: "Eliminar operador"
+                                            }, "🗑️")
                                         )
                                     )
                                 ))
@@ -4283,6 +4385,68 @@ function ViewGestorPersonal({ user, onBack }) {
                 React.createElement("div", { style: { padding: "12px 16px", background: "#fffbeb", borderRadius: 12, border: `1px solid #fef3c7`, color: "#92400e", fontSize: 12, lineHeight: 1.5 } },
                     React.createElement("div", { style: { fontWeight: 900, marginBottom: 4 } }, "💡 Sugerencia"),
                     "Asigna nombres de grupos para habilitar filtros avanzados y comparativas por equipo en los paneles de análisis."
+                ),
+
+                // Configuración de Turnos
+                React.createElement(Card, { style: { padding: 16 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                        React.createElement("div", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, "🔧 Turnos"),
+                        editTurnos ? 
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", {
+                                    onClick: () => setEditTurnos(false),
+                                    style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray }
+                                }, "✕"),
+                                React.createElement("button", {
+                                    onClick: handleSaveTurnos,
+                                    style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 }
+                                }, "✓")
+                            ) :
+                            React.createElement("button", {
+                                onClick: () => { setTempTurnos(turnos.join("\n")); setEditTurnos(true); },
+                                style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 }
+                            }, "Editar")
+                    ),
+                    editTurnos ?
+                        React.createElement("textarea", {
+                            value: tempTurnos,
+                            onChange: e => setTempTurnos(e.target.value),
+                            style: { width: "100%", height: 100, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "monospace", resize: "none" }
+                        }) :
+                        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                            turnos.map(t => React.createElement("span", { key: t, style: { background: C.light, color: C.navy, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600 } }, t))
+                        )
+                ),
+
+                // Configuración de Áreas
+                React.createElement(Card, { style: { padding: 16 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                        React.createElement("div", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, "🔧 Áreas Adm."),
+                        editAreas ? 
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", {
+                                    onClick: () => setEditAreas(false),
+                                    style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray }
+                                }, "✕"),
+                                React.createElement("button", {
+                                    onClick: handleSaveAreas,
+                                    style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 }
+                                }, "✓")
+                            ) :
+                            React.createElement("button", {
+                                onClick: () => { setTempAreas(areas.join("\n")); setEditAreas(true); },
+                                style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 }
+                            }, "Editar")
+                    ),
+                    editAreas ?
+                        React.createElement("textarea", {
+                            value: tempAreas,
+                            onChange: e => setTempAreas(e.target.value),
+                            style: { width: "100%", height: 100, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "monospace", resize: "none" }
+                        }) :
+                        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                            areas.map(a => React.createElement("span", { key: a, style: { background: C.greenBg, color: C.green, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600 } }, a))
+                        )
                 )
             )
         )
