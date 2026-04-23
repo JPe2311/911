@@ -364,52 +364,95 @@ function parseNominaCSV(raw) {
 function parseOperadoresMensualCSV(raw, month, year) {
     const lines = parseLines(raw);
     const result = [];
-    const idx = { name: 0, o: 1, c: 2, ab: 3, aht: 5, connected: 6, vPrepTime: 7, vNoPrepTime: 8, vPrepPct: 9 };
+    // Índices por defecto (mismo orden que el CSV de Llamadas por Agente)
+    const idx = {
+        name: 0, o: 1, c: 2, ab: 3, aht: 5,
+        connected: 6, avisando: 7, vPrepTime: 10,
+        vNoPrepTime: 11, vPrepPct: undefined, vNoPrepPct: undefined
+    };
+    let headerFound = false;
 
-    lines.forEach((l, i) => {
+    lines.forEach((l) => {
         if (!l.trim()) return;
-        const cols = l.split(";");
-        if (cols.length < 9) return;
+        // Usar parseSemicolon para manejar campos con comillas
+        const cols = parseSemicolon(l);
+        if (cols.length < 3) return;
 
-        // Detectar cabecera para ajustar índices si es necesario
-        if (cols.some(c => /agente/i.test(c)) && cols.some(c => /ofrec/i.test(c))) {
+        // Detectar cabecera
+        if (!headerFound && cols.some(c => /agente/i.test(c)) && cols.some(c => /ofrec/i.test(c))) {
+            headerFound = true;
             cols.forEach((h, j) => {
-                const head = (h || "").toLowerCase();
-                if (head.includes("agente")) idx.name = j;
+                const head = (h || "").toLowerCase().trim();
+                if (/agente/i.test(head) && !head.includes("grupo")) idx.name = j;
                 if (head.includes("ofrec")) idx.o = j;
                 if (head.includes("contest")) idx.c = j;
-                if (head.includes("aband")) idx.ab = j;
-                if (/en servicio|promedio.*atenci/i.test(head)) idx.aht = j;
-                if (/conectado/i.test(head)) idx.connected = j;
-                if (/voz preparada/i.test(head)) {
-                    if (idx.vPrepTime === undefined || idx.vPrepTime === 7) idx.vPrepTime = j;
-                    else idx.vPrepPct = j;
+                if (/aband/i.test(head) && !head.includes("voz")) idx.ab = j;
+                if (/en servicio|promedio.*atenci|aht|tmo/i.test(head)) idx.aht = j;
+                if (/t\.?\s*conect|conectado/i.test(head)) idx.connected = j;
+                if (/t\.?\s*avis|avisando/i.test(head)) idx.avisando = j;
+                // Voz Preparada: tiempo primero, luego porcentaje
+                if (/voz preparada/i.test(head) && !/no prep/i.test(head)) {
+                    if (idx.vPrepTime === undefined || !head.includes("%")) idx.vPrepTime = j;
+                    if (head.includes("%")) idx.vPrepPct = j;
+                }
+                // Voz No Preparada
+                if (/voz no preparada/i.test(head)) {
+                    if (idx.vNoPrepTime === undefined || !head.includes("%")) idx.vNoPrepTime = j;
+                    if (head.includes("%")) idx.vNoPrepPct = j;
                 }
             });
             return;
         }
 
-        const name = cols[idx.name]?.trim();
-        if (!name || name.toLowerCase() === "total" || name.toLowerCase() === "promedio" || name.toLowerCase() === "agente") return;
+        const name = (cols[idx.name] || "").trim();
+        if (!name) return;
+        const nameLower = name.toLowerCase();
+        if (nameLower === "total" || nameLower === "promedio" || nameLower === "agente") return;
+        // Validar que sea una fila de datos: ofrecidas debe ser número
+        if (isNaN(parseInt(cols[idx.o]))) return;
 
         const ahtSec = parseTimeToSeconds(cols[idx.aht]);
-        const vPrepPct = idx.vPrepPct !== undefined ? (parseFloat((cols[idx.vPrepPct] || "0").replace(",", ".")) || 0) : 0;
+        const avisandoSec = parseTimeToSeconds(cols[idx.avisando]);
+        const totalConectado = parseTimeToSeconds(cols[idx.connected]);
+        const totalPreparado = parseTimeToSeconds(cols[idx.vPrepTime]);
+        const totalNoPreparado = parseTimeToSeconds(cols[idx.vNoPrepTime]);
+        const ofrecidas = parseInt(cols[idx.o]) || 0;
+
+        // % Voz Preparada: preferir columna directa, si no calcular
+        let vPrepPct = 0;
+        if (idx.vPrepPct !== undefined && cols[idx.vPrepPct]) {
+            vPrepPct = parseFloat((cols[idx.vPrepPct] || "0").replace(",", ".")) || 0;
+        } else {
+            const denom = totalConectado > 0 ? totalConectado : (totalPreparado + totalNoPreparado);
+            vPrepPct = denom > 0 ? parseFloat(((totalPreparado / denom) * 100).toFixed(1)) : 0;
+        }
+
+        // % Voz No Preparada
+        let vNoPrepPct = 0;
+        if (idx.vNoPrepPct !== undefined && cols[idx.vNoPrepPct]) {
+            vNoPrepPct = parseFloat((cols[idx.vNoPrepPct] || "0").replace(",", ".")) || 0;
+        } else {
+            const denom = totalConectado > 0 ? totalConectado : (totalPreparado + totalNoPreparado);
+            vNoPrepPct = denom > 0 ? parseFloat(((totalNoPreparado / denom) * 100).toFixed(1)) : 0;
+        }
 
         result.push({
             name,
             normName: normalizeName(name),
             month,
-            year,
-            o: parseInt(cols[idx.o]) || 0,
+            year: typeof year === "string" ? parseInt(year) || year : year,
+            o: ofrecidas,
             c: parseInt(cols[idx.c]) || 0,
             ab: parseInt(cols[idx.ab]) || 0,
-            // 'manejo' es el AHT Promedio para los KPIs
+            avgManejo: ahtSec,
+            avgAvisando: avisandoSec,
             manejo: ahtSec,
-            totalConectado: parseTimeToSeconds(cols[idx.connected]),
-            totalPreparado: parseTimeToSeconds(cols[idx.vPrepTime]),
+            totalConectado,
+            totalPreparado,
+            totalNoPreparado,
             pctVozPreparada: vPrepPct,
-            // Compatibilidad
             pctProd: vPrepPct,
+            pctNoProd: vNoPrepPct,
         });
     });
     return result;
@@ -739,9 +782,11 @@ async function getOperatorPerformance(month, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    // Normalizar año a número para coincidir con el formato guardado
+    const yearNum = year && year !== "all" ? (typeof year === "string" ? parseInt(year) : year) : null;
     let q = collection(db, "operator_performance");
     if (month && month !== "all") q = query(q, where("month", "==", month));
-    if (year && year !== "all") q = query(q, where("year", "==", year));
+    if (yearNum) q = query(q, where("year", "==", yearNum));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
 }
@@ -750,10 +795,12 @@ async function getOperatorHistory(normName, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    // Normalizar año a número para coincidir con el formato guardado
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
     const q = query(
         collection(db, "operator_performance"),
         where("normName", "==", normName),
-        where("year", "==", year),
+        where("year", "==", yearNum),
         orderBy("month", "asc")
     );
     const snap = await getDocs(q);
@@ -779,7 +826,9 @@ async function getGroupAverages(year) {
     const db = getDB();
     if (!db) return {};
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const q = query(collection(db, "operator_performance"), where("year", "==", year));
+    // Normalizar año a número para coincidir con el formato guardado
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
     const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
 
@@ -3425,12 +3474,23 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const handleUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        // Resetear el input para permitir cargar el mismo archivo de nuevo
+        e.target.value = "";
         const text = await file.text();
-        const list = parseOperadoresMensualCSV(text, filter.month, filter.year);
-        if (list.length) {
-            await saveOperatorPerformance(list, filter.month, filter.year);
-            loadData();
+        const list = parseOperadoresMensualCSV(text, filter.month, parseInt(filter.year));
+        if (!list.length) {
+            alert(
+                `⚠️ No se encontraron registros en el archivo.\n\n` +
+                `Verificá que:\n` +
+                `• El archivo es el informe de "Llamadas por Agente" (CSV separado por punto y coma)\n` +
+                `• Contiene una cabecera con las columnas Agente, Ofrecidas, Contestadas, etc.\n` +
+                `• El mes/año seleccionado (${filter.month}/${filter.year}) coincide con el contenido`
+            );
+            return;
         }
+        await saveOperatorPerformance(list, filter.month, parseInt(filter.year));
+        alert(`✅ ${list.length} operadores cargados correctamente para ${filter.month}/${filter.year}`);
+        loadData();
     };
 
     const combined = useMemo(() => {
