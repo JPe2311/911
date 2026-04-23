@@ -3533,7 +3533,7 @@ function ViewComparativaGrupos({ user, onBack }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: ANÁLISIS DE OPERADORES (Métricas Mensuales)
 // ════════════════════════════════════════════════════════════════════════════
-function ViewAnalisisOperadores({ user, onBack, navigateToProfile, filter: externalFilter }) {
+function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const [perf, setPerf] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState(null);
@@ -4849,7 +4849,7 @@ function App() {
             }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
-            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); }, filter }),
+            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
             view === "operadores_perfil" && React.createElement(ViewPerfilOperador, { user, initialAgent: profileAgent, onBack: () => { setProfileAgent(null); setView("upload"); } }),
             view === "despacho" && React.createElement(ViewDespacho, { data: files }),
             view === "personal" && React.createElement(ViewGestorPersonal, { user, onBack: () => setView("upload") }),
