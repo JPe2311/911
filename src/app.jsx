@@ -733,8 +733,31 @@ async function saveStaffToFirestore(list) {
 async function updateStaffTurno(normName, newTurno) {
     const db = getDB();
     if (!db) return;
-    const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await updateDoc(doc(db, "staff", normName), { turno: newTurno });
+    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
+    await addDoc(collection(db, "staff_history"), {
+        normName,
+        field: "turno",
+        value: newTurno,
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear(),
+        timestamp: serverTimestamp()
+    });
+}
+
+async function updateStaffArea(normName, newArea) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "staff", normName), { area: newArea }, { merge: true });
+    await addDoc(collection(db, "staff_history"), {
+        normName,
+        field: "area",
+        value: newArea,
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear(),
+        timestamp: serverTimestamp()
+    });
 }
 
 async function updateStaffGroup(normName, newGroup) {
@@ -807,16 +830,37 @@ async function getOperatorHistory(normName, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    // Normalizar año a número para coincidir con el formato guardado
     const yearNum = typeof year === "string" ? parseInt(year) : year;
     const q = query(
         collection(db, "operator_performance"),
         where("normName", "==", normName),
         where("year", "==", yearNum),
-        orderBy("month", "asc")
+        orderBy("month", "desc")
     );
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
+}
+
+async function getStaffTurnoArea(normName, month, year) {
+    const db = getDB();
+    if (!db) return { turno: null, area: null };
+    const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const q = query(
+        collection(db, "staff_history"),
+        where("normName", "==", normName),
+        where("month", "==", month),
+        where("year", "==", yearNum),
+        orderBy("timestamp", "desc"),
+        limit(1)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return { turno: null, area: null };
+    const doc = snap.docs[0].data();
+    const result = { turno: null, area: null };
+    if (doc.field === "turno") result.turno = doc.value;
+    if (doc.field === "area") result.area = doc.value;
+    return result;
 }
 
 async function getUniqueOperators() {
@@ -3466,7 +3510,10 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
         ]);
         setPerf(pList);
         const map = {};
-        staff.forEach(s => { map[s.normName] = s; });
+        for (const s of staff) {
+            const ta = await getStaffTurnoArea(s.normName, filter.month, parseInt(filter.year));
+            map[s.normName] = { ...s, turno: ta.turno || s.turno || "", area: ta.area || s.area || "" };
+        }
         setStaffMap(map);
         const groups = [...new Set(staff.map(s => s.grupo).filter(Boolean))].sort();
         setAvailableGroups(groups);
@@ -3724,7 +3771,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Grupo", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
+                        ["Operador", "Turno", "Área", "Grupo", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
@@ -3749,6 +3796,12 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno ? C.mid : C.gray, bg: p.turno ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: p.area || "S/A", color: p.area ? C.green : C.gray, bg: p.area ? C.greenBg : "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement(Badge, { label: p.grupo || "S/G", color: p.grupo ? C.mid : C.gray, bg: p.grupo ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
@@ -3767,7 +3820,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                         )
                                     ),
                                     expanded === p.normName && React.createElement("tr", { style: { background: "#f8fafc" } },
-                                        React.createElement("td", { colSpan: 5, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
+                                        React.createElement("td", { colSpan: 8, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
                                             React.createElement("div", { className: "animate-slide-down" },
                                                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 24 } },
                                                     // Col 1: Distribución
@@ -4066,6 +4119,23 @@ function ViewGestorPersonal({ user, onBack }) {
 
     useEffect(() => { loadStaff(); }, []);
 
+    const TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "Administrativo", "Otro"];
+    const AREAS = ["Atención al Público", "Supervisión", "Backoffice", "Coordinación", "Otro"];
+
+    const handleUpdateTurno = async (normName, newTurno) => {
+        setSaving(normName);
+        await updateStaffTurno(normName, newTurno);
+        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, turno: newTurno } : s));
+        setSaving(null);
+    };
+
+    const handleUpdateArea = async (normName, newArea) => {
+        setSaving(normName);
+        await updateStaffArea(normName, newArea);
+        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, area: newArea } : s));
+        setSaving(null);
+    };
+
     const handleUpdateGroup = async (normName, group) => {
         setSaving(normName);
         await updateStaffGroup(normName, group);
@@ -4087,8 +4157,10 @@ function ViewGestorPersonal({ user, onBack }) {
     const filteredStaff = staff.filter(s => {
         const n = (s.name || "").toLowerCase();
         const g = (s.grupo || "").toLowerCase();
+        const t = (s.turno || "").toLowerCase();
+        const a = (s.area || "").toLowerCase();
         const sc = (searchTerm || "").toLowerCase();
-        return n.includes(sc) || g.includes(sc);
+        return n.includes(sc) || g.includes(sc) || t.includes(sc) || a.includes(sc);
     });
 
     const groupCounts = useMemo(() => {
@@ -4126,14 +4198,14 @@ function ViewGestorPersonal({ user, onBack }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Operador", "Turno", "Grupo / Célula"].map(h =>
+                            ["Operador", "Turno", "Área", "Grupo / Célula"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
                     ),
                     React.createElement("tbody", null,
-                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
-                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
+                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
+                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
                                 filteredStaff.map((s, i) => (
                                     React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -4147,7 +4219,32 @@ function ViewGestorPersonal({ user, onBack }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement(Badge, { label: s.turno || "—", color: C.gray, bg: "#f1f5f9" })
+                                            React.createElement("select", {
+                                                value: s.turno || "",
+                                                onChange: e => handleUpdateTurno(s.normName, e.target.value),
+                                                style: {
+                                                    padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                                                    fontSize: 13, fontWeight: 700, color: s.turno ? C.navy : C.gray,
+                                                    background: "#fff", width: "100%", cursor: "pointer"
+                                                }
+                                            },
+                                                React.createElement("option", { value: "" }, "Seleccionar..."),
+                                                TURNOS.map(t => React.createElement("option", { key: t, value: t }, t))
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("select", {
+                                                value: s.area || "",
+                                                onChange: e => handleUpdateArea(s.normName, e.target.value),
+                                                style: {
+                                                    padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                                                    fontSize: 13, fontWeight: 700, color: s.area ? C.navy : C.gray,
+                                                    background: "#fff", width: "100%", cursor: "pointer"
+                                                }
+                                            },
+                                                React.createElement("option", { value: "" }, "Seleccionar..."),
+                                                AREAS.map(a => React.createElement("option", { key: a, value: a }, a))
+                                            )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("input", {
