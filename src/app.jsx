@@ -364,97 +364,105 @@ function parseNominaCSV(raw) {
 function parseOperadoresMensualCSV(raw, month, year) {
     const lines = parseLines(raw);
     const result = [];
-    // Índices por defecto (mismo orden que el CSV de Llamadas por Agente)
+
+    // Índices default: mismo orden que el informe "Llamadas por Agente"
     const idx = {
-        name: 0, o: 1, c: 2, ab: 3, aht: 5,
-        connected: 6, avisando: 7, vPrepTime: 10,
-        vNoPrepTime: 11, vPrepPct: undefined, vNoPrepPct: undefined
+        name: 0,
+        ofrecidas: 2,
+        contestadas: 3,
+        abandonadas: 4,
+        aht: 5,
+        tiempoConectado: 6,
+        tiempoAvisando: 7,
+        vozPreparada: 8,
+        vozNoPreparada: 9,
+        pctVozPrep: 10,
+        pctVozNoPrep: 11,
     };
     let headerFound = false;
 
-    lines.forEach((l) => {
-        if (!l.trim()) return;
-        // Usar parseSemicolon para manejar campos con comillas
-        const cols = parseSemicolon(l);
-        if (cols.length < 3) return;
+    for (let i = 0; i < lines.length; i++) {
+        const cols = parseSemicolon(lines[i]);
+        if (!cols.length || cols.length < 2) continue;
+        const first = (cols[0] || "").trim();
 
-        // Detectar cabecera
-        if (!headerFound && cols.some(c => /agente/i.test(c)) && cols.some(c => /ofrec/i.test(c))) {
+        // Detectar cabecera: misma lógica que parseAgentes
+        if (!headerFound && cols.some(h => /agente/i.test(h)) && cols.some(h => /ofrec/i.test(h))) {
             headerFound = true;
             cols.forEach((h, j) => {
-                const head = (h || "").toLowerCase().trim();
-                if (/agente/i.test(head) && !head.includes("grupo")) idx.name = j;
-                if (head.includes("ofrec")) idx.o = j;
-                if (head.includes("contest")) idx.c = j;
-                if (/aband/i.test(head) && !head.includes("voz")) idx.ab = j;
-                if (/en servicio|promedio.*atenci|aht|tmo/i.test(head)) idx.aht = j;
-                if (/t\.?\s*conect|conectado/i.test(head)) idx.connected = j;
-                if (/t\.?\s*avis|avisando/i.test(head)) idx.avisando = j;
-                // Voz Preparada: tiempo primero, luego porcentaje
-                if (/voz preparada/i.test(head) && !/no prep/i.test(head)) {
-                    if (idx.vPrepTime === undefined || !head.includes("%")) idx.vPrepTime = j;
-                    if (head.includes("%")) idx.vPrepPct = j;
+                const key = (h || "").toLowerCase().trim();
+                if (/agente/i.test(key) && !key.includes("grupo")) idx.name = j;
+                if (key.includes("ofrec")) idx.ofrecidas = j;
+                if (key.includes("contest")) idx.contestadas = j;
+                if (/aband/i.test(key) && !key.includes("voz")) idx.abandonadas = j;
+                if (/en servicio|promedio.*atenci|aht|tmo/i.test(key)) idx.aht = j;
+                if (/t\.?\s*conect|conectado/i.test(key)) idx.tiempoConectado = j;
+                if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
+                // Voz Preparada (tiempo primero, luego %)
+                if (/voz preparada/i.test(key) && !/no prep/i.test(key)) {
+                    if (idx.vozPreparada === undefined || !key.includes("%")) idx.vozPreparada = j;
+                    else if (key.includes("%")) idx.pctVozPrep = j;
                 }
                 // Voz No Preparada
-                if (/voz no preparada/i.test(head)) {
-                    if (idx.vNoPrepTime === undefined || !head.includes("%")) idx.vNoPrepTime = j;
-                    if (head.includes("%")) idx.vNoPrepPct = j;
+                if (/voz no preparada/i.test(key)) {
+                    if (idx.vozNoPreparada === undefined || !key.includes("%")) idx.vozNoPreparada = j;
+                    else if (key.includes("%")) idx.pctVozNoPrep = j;
                 }
             });
-            return;
+            continue;
         }
 
-        const name = (cols[idx.name] || "").trim();
-        if (!name) return;
-        const nameLower = name.toLowerCase();
-        if (nameLower === "total" || nameLower === "promedio" || nameLower === "agente") return;
-        // Validar que sea una fila de datos: ofrecidas debe ser número
-        if (isNaN(parseInt(cols[idx.o]))) return;
+        // Filas de datos: nombre no vacío, no total/promedio, ofrecidas es número
+        if (first && first !== "Agente" && first !== "Total" && first !== "Promedio") {
+            const ofr = parseInt(cols[idx.ofrecidas]);
+            if (isNaN(ofr)) continue;
 
-        const ahtSec = parseTimeToSeconds(cols[idx.aht]);
-        const avisandoSec = parseTimeToSeconds(cols[idx.avisando]);
-        const totalConectado = parseTimeToSeconds(cols[idx.connected]);
-        const totalPreparado = parseTimeToSeconds(cols[idx.vPrepTime]);
-        const totalNoPreparado = parseTimeToSeconds(cols[idx.vNoPrepTime]);
-        const ofrecidas = parseInt(cols[idx.o]) || 0;
+            const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
+            const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
+            const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+            const avisandoSec = parseTimeToSeconds(cols[idx.tiempoAvisando]);
+            const totalConectSec = parseTimeToSeconds(cols[idx.tiempoConectado]);
 
-        // % Voz Preparada: preferir columna directa, si no calcular
-        let vPrepPct = 0;
-        if (idx.vPrepPct !== undefined && cols[idx.vPrepPct]) {
-            vPrepPct = parseFloat((cols[idx.vPrepPct] || "0").replace(",", ".")) || 0;
-        } else {
-            const denom = totalConectado > 0 ? totalConectado : (totalPreparado + totalNoPreparado);
-            vPrepPct = denom > 0 ? parseFloat(((totalPreparado / denom) * 100).toFixed(1)) : 0;
+            // % Voz Preparada
+            let pctVoz = 0;
+            if (idx.pctVozPrep !== undefined && cols[idx.pctVozPrep]) {
+                pctVoz = parseFloat((cols[idx.pctVozPrep] || "0").replace(",", ".")) || 0;
+            } else {
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctVoz = denom > 0 ? parseFloat(((vPrepSec / denom) * 100).toFixed(1)) : 0;
+            }
+
+            // % Voz No Preparada
+            let pctNoProd = 0;
+            if (idx.pctVozNoPrep !== undefined && cols[idx.pctVozNoPrep]) {
+                pctNoProd = parseFloat((cols[idx.pctVozNoPrep] || "0").replace(",", ".")) || 0;
+            } else {
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctNoProd = denom > 0 ? parseFloat(((vNoPrepSec / denom) * 100).toFixed(1)) : 0;
+            }
+
+            const yearNum = typeof year === "string" ? (parseInt(year) || year) : year;
+
+            result.push({
+                name: first,
+                normName: normalizeName(first),
+                month,
+                year: yearNum,
+                o: ofr,
+                c: parseInt(cols[idx.contestadas]) || 0,
+                ab: parseInt(cols[idx.abandonadas]) || 0,
+                avgManejo: ahtSec,
+                avgAvisando: avisandoSec,
+                manejo: ahtSec,
+                totalConectado: totalConectSec,
+                totalPreparado: vPrepSec,
+                totalNoPreparado: vNoPrepSec,
+                pctVozPreparada: pctVoz,
+                pctProd: pctVoz,
+                pctNoProd,
+            });
         }
-
-        // % Voz No Preparada
-        let vNoPrepPct = 0;
-        if (idx.vNoPrepPct !== undefined && cols[idx.vNoPrepPct]) {
-            vNoPrepPct = parseFloat((cols[idx.vNoPrepPct] || "0").replace(",", ".")) || 0;
-        } else {
-            const denom = totalConectado > 0 ? totalConectado : (totalPreparado + totalNoPreparado);
-            vNoPrepPct = denom > 0 ? parseFloat(((totalNoPreparado / denom) * 100).toFixed(1)) : 0;
-        }
-
-        result.push({
-            name,
-            normName: normalizeName(name),
-            month,
-            year: typeof year === "string" ? parseInt(year) || year : year,
-            o: ofrecidas,
-            c: parseInt(cols[idx.c]) || 0,
-            ab: parseInt(cols[idx.ab]) || 0,
-            avgManejo: ahtSec,
-            avgAvisando: avisandoSec,
-            manejo: ahtSec,
-            totalConectado,
-            totalPreparado,
-            totalNoPreparado,
-            pctVozPreparada: vPrepPct,
-            pctProd: vPrepPct,
-            pctNoProd: vNoPrepPct,
-        });
-    });
+    }
     return result;
 }
 
@@ -3474,22 +3482,28 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const handleUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        // Resetear el input para permitir cargar el mismo archivo de nuevo
         e.target.value = "";
         const text = await file.text();
         const list = parseOperadoresMensualCSV(text, filter.month, parseInt(filter.year));
         if (!list.length) {
+            // Mostrar las primeras líneas del CSV para diagnosticar el formato
+            const preview = text
+                .replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+                .split("\n")
+                .slice(0, 6)
+                .map((l, i) => `  L${i + 1}: ${l.substring(0, 80)}`)
+                .join("\n");
             alert(
-                `⚠️ No se encontraron registros en el archivo.\n\n` +
-                `Verificá que:\n` +
-                `• El archivo es el informe de "Llamadas por Agente" (CSV separado por punto y coma)\n` +
-                `• Contiene una cabecera con las columnas Agente, Ofrecidas, Contestadas, etc.\n` +
-                `• El mes/año seleccionado (${filter.month}/${filter.year}) coincide con el contenido`
+                `⚠️ No se encontraron registros en "${file.name}".\n\n` +
+                `El parser busca una fila de cabecera que contenga las palabras\n` +
+                `"Agente" y "Ofrecidas" (en cualquier columna).\n\n` +
+                `Primeras líneas del archivo:\n${preview}\n\n` +
+                `Verificá que el mes/año seleccionado sea ${filter.month}/${filter.year}.`
             );
             return;
         }
         await saveOperatorPerformance(list, filter.month, parseInt(filter.year));
-        alert(`✅ ${list.length} operadores cargados correctamente para ${filter.month}/${filter.year}`);
+        alert(`✅ ${list.length} operadores cargados para ${filter.month}/${filter.year}`);
         loadData();
     };
 
