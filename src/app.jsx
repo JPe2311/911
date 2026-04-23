@@ -807,13 +807,15 @@ async function saveConfigTurnos(lista) {
 
 async function saveOperatorPerformance(list, month, year) {
     const db = getDB();
-    if (!db) return;
+    if (!db || !list?.length || !month || !year) return;
     const { doc, setDoc, query, where, getDocs, collection, writeBatch } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const perfRef = collection(db, "operator_performance");
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const monthStr = typeof month === "string" ? month : month.toString().padStart(2, "0");
 
     try {
         // 1. Limpiar datos previos del mismo mes/año para evitar "fantasmas"
-        const q = query(perfRef, where("month", "==", month), where("year", "==", year));
+        const q = query(perfRef, where("month", "==", monthStr), where("year", "==", yearNum));
         const snap = await getDocs(q);
         const batch = writeBatch(db);
         snap.docs.forEach(d => batch.delete(d.ref));
@@ -845,20 +847,20 @@ async function getOperatorPerformance(month, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    // Normalizar año a número para coincidir con el formato guardado
     const yearNum = year && year !== "all" ? (typeof year === "string" ? parseInt(year) : year) : null;
+    if (!yearNum) return [];
     let q = collection(db, "operator_performance");
     if (month && month !== "all") q = query(q, where("month", "==", month));
-    if (yearNum) q = query(q, where("year", "==", yearNum));
+    q = query(q, where("year", "==", yearNum));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
 }
 
 async function getOperatorHistory(normName, year) {
     const db = getDB();
-    if (!db) return [];
+    if (!db || !normName) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(
         collection(db, "operator_performance"),
         where("normName", "==", normName),
@@ -871,13 +873,14 @@ async function getOperatorHistory(normName, year) {
 
 async function getStaffTurnoArea(normName, month, year) {
     const db = getDB();
-    if (!db) return { turno: null, area: null };
+    if (!db || !normName) return { turno: null, area: null };
     const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
+    const monthStr = month || (new Date().getMonth() + 1).toString().padStart(2, "0");
     const q = query(
         collection(db, "staff_history"),
         where("normName", "==", normName),
-        where("month", "==", month),
+        where("month", "==", monthStr),
         where("year", "==", yearNum),
         orderBy("timestamp", "desc"),
         limit(1)
@@ -910,8 +913,7 @@ async function getGroupAverages(year) {
     const db = getDB();
     if (!db) return {};
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    // Normalizar año a número para coincidir con el formato guardado
-    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
     const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
@@ -945,14 +947,15 @@ async function getGroupAverages(year) {
 }
 
 // ─── Hallazgos Globales (Scanning Historical Data) ─────────────────────
-async function getGlobalInsights(month = null, year = 2026) {
+async function getGlobalInsights(month = null, year = new Date().getFullYear()) {
     try {
         const db = getDB();
         if (!db) return [];
         const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
+        const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
         const perfRef = collection(db, "operator_performance");
-        const snap = await getDocs(query(perfRef, where("year", "==", year)));
+        const snap = await getDocs(query(perfRef, where("year", "==", yearNum)));
         const data = snap.docs.map(d => d.data());
         
         let filteredData = data;
