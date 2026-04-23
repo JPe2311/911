@@ -972,7 +972,6 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
         const insights = [];
         const currentMonth = parseInt(month || new Date().getMonth() + 1);
         const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-        const yearNum = parseInt(year);
         const prevYear = currentMonth === 1 ? yearNum - 1 : yearNum;
 
         // 1. Tendencia de Abandono
