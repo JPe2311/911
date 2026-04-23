@@ -105,14 +105,16 @@ function parseAgentes(raw) {
     let meta = {};
     const idx = {
         nombre: 0,
-        ofrecidas: 1,
-        contestadas: 2,
-        abandonadas: 3,
-        aht: 5,
+        ofrecidas: 2,
+        contestadas: 3,
+        abandonadas: 4,
+        aht: 5, 
         tiempoConectado: 6,
-        vozPreparada: 7,
-        vozNoPreparada: 8,
-        disponibilidad: 10, // Default based on snippet
+        tiempoAvisando: 7,
+        tiempoAusente: 13,
+        vozPreparada: 10,
+        vozNoPreparada: 11,
+        disponibilidad: 12,
     };
     let headerFound = false;
 
@@ -138,7 +140,7 @@ function parseAgentes(raw) {
                 if (key.includes("ofrec")) idx.ofrecidas = j;
                 if (key.includes("contest")) idx.contestadas = j;
                 if (/aband/i.test(key)) idx.abandonadas = j;
-                if (/en servicio|promedio.*atenci/i.test(key)) idx.aht = j;
+                if (/en servicio|promedio.*atenci|aht|tmo/i.test(key)) idx.aht = j;
                 if (/voz preparada|tiempo de atenci/i.test(key)) {
                     // La primera columna de "Voz preparada" suele ser el tiempo, la segunda el %
                     if (idx.vozPreparada === undefined || idx.vozPreparada === 7) idx.vozPreparada = j;
@@ -148,9 +150,14 @@ function parseAgentes(raw) {
                     if (idx.vozNoPreparada === undefined || idx.vozNoPreparada === 8) idx.vozNoPreparada = j;
                     else idx.pctVozNoPrep = j;
                 }
-                if (/tiempo.*conect|t\.?\s*conect/i.test(key)) idx.tiempoConectado = j;
-                if (/tiempo.*ausent|t\.?\s*ausent/i.test(key)) idx.tiempoAusente = j;
-                if (key.includes("disponib")) idx.disponibilidad = j;
+                
+                // Tiempos específicos (distinguir T. Conectado de T. Avisando)
+                if (/t\.?\s*conect|conectado/i.test(key)) idx.tiempoConectado = j;
+                if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
+                if (/t\.?\s*ausent|ausente/i.test(key)) idx.tiempoAusente = j;
+                
+                if (/disponib.*%/i.test(key)) idx.disponibilidad = j;
+                else if (key.includes("disponib") && (idx.disponibilidad === undefined || idx.disponibilidad === 11)) idx.disponibilidad = j;
             });
             continue;
         }
@@ -159,19 +166,25 @@ function parseAgentes(raw) {
         if (headerFound && first && first !== "Agente" && !isNaN(parseInt(cols[idx.ofrecidas]))) {
             const nombre = first;
             if (nombre === "Total" || nombre === "Promedio") continue;
-
             const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
             const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
             const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+            const totalConectSec = parseTimeToSeconds(cols[idx.tiempoConectado]);
 
             // Preferir el porcentaje directo de la columna si existe
             let pctVoz = 0;
-            if (idx.pctVozPrep !== undefined) {
+            if (idx.pctVozPrep !== undefined && cols[idx.pctVozPrep]) {
                 pctVoz = parseFloat((cols[idx.pctVozPrep] || "0").replace(",", ".")) || 0;
             } else {
-                const totalActivity = vPrepSec + vNoPrepSec;
-                pctVoz = totalActivity > 0 ? parseFloat(((vPrepSec / totalActivity) * 100).toFixed(1)) : 0;
+                // Denominador: Tiempo Conectado es más real que la suma de estados parciales
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctVoz = denom > 0 ? parseFloat(((vPrepSec / denom) * 100).toFixed(1)) : 0;
             }
+
+            // Calculate Disponibilidad: (Tiempo Conectado - Voz No Preparada) / Tiempo Conectado
+            const calcDisponibilidad = totalConectSec > 0 
+                ? parseFloat((((totalConectSec - vNoPrepSec) / totalConectSec) * 100).toFixed(1))
+                : 0;
 
             agents.push({
                 nombre,
@@ -180,12 +193,14 @@ function parseAgentes(raw) {
                 abandonadas: parseInt(cols[idx.abandonadas]) || 0,
                 aht: ahtSec,
                 tiempoConectado: cols[idx.tiempoConectado] || "0:00:00",
-                tiempoAusente: cols[idx.tiempoAusente] || "0:00:00",
+                tiempoAvisando: cols[idx.tiempoAvisando] || "0:00:00",
+                tiempoAusente: cols[idx.vozNoPreparada] || "0:00:00",
                 tiempoManejo: ahtSec, // Usamos AHT para el "Promedio de atención"
                 totalPreparado: vPrepSec,
                 totalNoPreparado: vNoPrepSec,
                 pctVozPreparada: pctVoz,
-                disponibilidad: parseFloat((cols[idx.disponibilidad] || "0").replace(",", ".")) || 0,
+                pctAbandonoCabina: (parseInt(cols[idx.ofrecidas]) > 0) ? parseFloat(((parseInt(cols[idx.abandonadas]) / parseInt(cols[idx.ofrecidas])) * 100).toFixed(1)) : 0,
+                disponibilidad: calcDisponibilidad,
             });
             continue;
         }
@@ -349,54 +364,109 @@ function parseNominaCSV(raw) {
 function parseOperadoresMensualCSV(raw, month, year) {
     const lines = parseLines(raw);
     const result = [];
-    const idx = { name: 0, o: 1, c: 2, ab: 3, aht: 5, connected: 6, vPrepTime: 7, vNoPrepTime: 8, vPrepPct: 9 };
 
-    lines.forEach((l, i) => {
-        if (!l.trim()) return;
-        const cols = l.split(";");
-        if (cols.length < 9) return;
+    // Índices default: mismo orden que el informe "Llamadas por Agente"
+    const idx = {
+        name: 0,
+        ofrecidas: 2,
+        contestadas: 3,
+        abandonadas: 4,
+        aht: 5,
+        tiempoConectado: 6,
+        tiempoAvisando: 7,
+        vozPreparada: 8,
+        vozNoPreparada: 9,
+        pctVozPrep: 10,
+        pctVozNoPrep: 11,
+    };
+    let headerFound = false;
+    const colCount = {};
 
-        // Detectar cabecera para ajustar índices si es necesario
-        if (cols.some(c => /agente/i.test(c)) && cols.some(c => /ofrec/i.test(c))) {
+    for (let i = 0; i < lines.length; i++) {
+        const cols = parseSemicolon(lines[i]);
+        if (!cols.length || cols.length < 2) continue;
+        const first = (cols[0] || "").trim();
+
+        // Detectar cabecera: misma lógica que parseAgentes
+        if (!headerFound && cols.some(h => /agente/i.test(h)) && cols.some(h => /ofrec/i.test(h))) {
+            headerFound = true;
             cols.forEach((h, j) => {
-                const head = (h || "").toLowerCase();
-                if (head.includes("agente")) idx.name = j;
-                if (head.includes("ofrec")) idx.o = j;
-                if (head.includes("contest")) idx.c = j;
-                if (head.includes("aband")) idx.ab = j;
-                if (/en servicio|promedio.*atenci/i.test(head)) idx.aht = j;
-                if (/conectado/i.test(head)) idx.connected = j;
-                if (/voz preparada/i.test(head)) {
-                    if (idx.vPrepTime === undefined || idx.vPrepTime === 7) idx.vPrepTime = j;
-                    else idx.vPrepPct = j;
+                const key = (h || "").toLowerCase().trim();
+                const baseKey = key.replace(/%/g, "").trim();
+                colCount[baseKey] = (colCount[baseKey] || 0) + 1;
+                const occurrence = colCount[baseKey];
+                if (/agente/i.test(key) && !key.includes("grupo")) idx.name = j;
+                if (key.includes("ofrec")) idx.ofrecidas = j;
+                if (key.includes("contest")) idx.contestadas = j;
+                if (/aband/i.test(key) && !key.includes("voz")) idx.abandonadas = j;
+                if (/en servicio|promedio.*atenci|aht|tmo/i.test(key)) idx.aht = j;
+                if (/t\.?\s*conect|conectado/i.test(key)) idx.tiempoConectado = j;
+                if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
+                // Voz Preparada: primera ocurrencia = tiempo, segunda = %
+                if (/voz preparada/i.test(key) && !/no prep/i.test(key)) {
+                    if (occurrence === 1) idx.vozPreparada = j;
+                    else if (occurrence === 2) idx.pctVozPrep = j;
+                }
+                // Voz No Preparada: primera ocurrencia = tiempo, segunda = %
+                if (/voz no preparada/i.test(key)) {
+                    if (occurrence === 1) idx.vozNoPreparada = j;
+                    else if (occurrence === 2) idx.pctVozNoPrep = j;
                 }
             });
-            return;
+            continue;
         }
 
-        const name = cols[idx.name]?.trim();
-        if (!name || name.toLowerCase() === "total" || name.toLowerCase() === "promedio" || name.toLowerCase() === "agente") return;
+        // Filas de datos: nombre no vacío, no total/promedio, ofrecidas es número
+        if (first && first !== "Agente" && first !== "Total" && first !== "Promedio") {
+            const ofr = parseInt(cols[idx.ofrecidas]);
+            if (isNaN(ofr)) continue;
 
-        const ahtSec = parseTimeToSeconds(cols[idx.aht]);
-        const vPrepPct = idx.vPrepPct !== undefined ? (parseFloat((cols[idx.vPrepPct] || "0").replace(",", ".")) || 0) : 0;
+            const vPrepSec = parseTimeToSeconds(cols[idx.vozPreparada]);
+            const vNoPrepSec = parseTimeToSeconds(cols[idx.vozNoPreparada]);
+            const ahtSec = parseTimeToSeconds(cols[idx.aht]);
+            const avisandoSec = parseTimeToSeconds(cols[idx.tiempoAvisando]);
+            const totalConectSec = parseTimeToSeconds(cols[idx.tiempoConectado]);
 
-        result.push({
-            name,
-            normName: normalizeName(name),
-            month,
-            year,
-            o: parseInt(cols[idx.o]) || 0,
-            c: parseInt(cols[idx.c]) || 0,
-            ab: parseInt(cols[idx.ab]) || 0,
-            // 'manejo' es el AHT Promedio para los KPIs
-            manejo: ahtSec,
-            totalConectado: parseTimeToSeconds(cols[idx.connected]),
-            totalPreparado: parseTimeToSeconds(cols[idx.vPrepTime]),
-            pctVozPreparada: vPrepPct,
-            // Compatibilidad
-            pctProd: vPrepPct,
-        });
-    });
+            // % Voz Preparada
+            let pctVoz = 0;
+            if (idx.pctVozPrep !== undefined && cols[idx.pctVozPrep]) {
+                pctVoz = parseFloat((cols[idx.pctVozPrep] || "0").replace(",", ".")) || 0;
+            } else {
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctVoz = denom > 0 ? parseFloat(((vPrepSec / denom) * 100).toFixed(1)) : 0;
+            }
+
+            // % Voz No Preparada
+            let pctNoProd = 0;
+            if (idx.pctVozNoPrep !== undefined && cols[idx.pctVozNoPrep]) {
+                pctNoProd = parseFloat((cols[idx.pctVozNoPrep] || "0").replace(",", ".")) || 0;
+            } else {
+                const denom = totalConectSec > 0 ? totalConectSec : (vPrepSec + vNoPrepSec);
+                pctNoProd = denom > 0 ? parseFloat(((vNoPrepSec / denom) * 100).toFixed(1)) : 0;
+            }
+
+            const yearNum = typeof year === "string" ? (parseInt(year) || year) : year;
+
+            result.push({
+                name: first,
+                normName: normalizeName(first),
+                month,
+                year: yearNum,
+                o: ofr,
+                c: parseInt(cols[idx.contestadas]) || 0,
+                ab: parseInt(cols[idx.abandonadas]) || 0,
+                avgManejo: ahtSec,
+                avgAvisando: avisandoSec,
+                manejo: ahtSec,
+                totalConectado: totalConectSec,
+                totalPreparado: vPrepSec,
+                totalNoPreparado: vNoPrepSec,
+                pctVozPreparada: pctVoz,
+                pctProd: pctVoz,
+                pctNoProd,
+            });
+        }
+    }
     return result;
 }
 
@@ -663,8 +733,31 @@ async function saveStaffToFirestore(list) {
 async function updateStaffTurno(normName, newTurno) {
     const db = getDB();
     if (!db) return;
-    const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await updateDoc(doc(db, "staff", normName), { turno: newTurno });
+    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
+    await addDoc(collection(db, "staff_history"), {
+        normName,
+        field: "turno",
+        value: newTurno,
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear(),
+        timestamp: serverTimestamp()
+    });
+}
+
+async function updateStaffArea(normName, newArea) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "staff", normName), { area: newArea }, { merge: true });
+    await addDoc(collection(db, "staff_history"), {
+        normName,
+        field: "area",
+        value: newArea,
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear(),
+        timestamp: serverTimestamp()
+    });
 }
 
 async function updateStaffGroup(normName, newGroup) {
@@ -682,6 +775,34 @@ async function getGroups() {
     const groups = new Set();
     snap.docs.forEach(d => { const g = d.data().grupo; if (g) groups.add(g); });
     return Array.from(groups).sort();
+}
+
+async function deleteStaff(normName) {
+    const db = getDB();
+    if (!db || !normName) return;
+    try {
+        const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        await deleteDoc(doc(db, "staff", normName));
+    } catch (e) {
+        console.error("Error deleting staff:", e);
+    }
+}
+
+const DEFAULT_TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "Administrativo", "Otro"];
+
+async function getConfigTurnos() {
+    const db = getDB();
+    if (!db) return DEFAULT_TURNOS;
+    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDoc(doc(db, "config", "turnos"));
+    return snap.exists() ? snap.data().lista : DEFAULT_TURNOS;
+}
+
+async function saveConfigTurnos(lista) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "config", "turnos"), { lista }, { merge: true });
 }
 
 async function saveOperatorPerformance(list, month, year) {
@@ -724,9 +845,11 @@ async function getOperatorPerformance(month, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    // Normalizar año a número para coincidir con el formato guardado
+    const yearNum = year && year !== "all" ? (typeof year === "string" ? parseInt(year) : year) : null;
     let q = collection(db, "operator_performance");
     if (month && month !== "all") q = query(q, where("month", "==", month));
-    if (year && year !== "all") q = query(q, where("year", "==", year));
+    if (yearNum) q = query(q, where("year", "==", yearNum));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
 }
@@ -735,14 +858,37 @@ async function getOperatorHistory(normName, year) {
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
     const q = query(
         collection(db, "operator_performance"),
         where("normName", "==", normName),
-        where("year", "==", year),
-        orderBy("month", "asc")
+        where("year", "==", yearNum),
+        orderBy("month", "desc")
     );
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data());
+}
+
+async function getStaffTurnoArea(normName, month, year) {
+    const db = getDB();
+    if (!db) return { turno: null, area: null };
+    const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const q = query(
+        collection(db, "staff_history"),
+        where("normName", "==", normName),
+        where("month", "==", month),
+        where("year", "==", yearNum),
+        orderBy("timestamp", "desc"),
+        limit(1)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return { turno: null, area: null };
+    const doc = snap.docs[0].data();
+    const result = { turno: null, area: null };
+    if (doc.field === "turno") result.turno = doc.value;
+    if (doc.field === "area") result.area = doc.value;
+    return result;
 }
 
 async function getUniqueOperators() {
@@ -764,7 +910,9 @@ async function getGroupAverages(year) {
     const db = getDB();
     if (!db) return {};
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    const q = query(collection(db, "operator_performance"), where("year", "==", year));
+    // Normalizar año a número para coincidir con el formato guardado
+    const yearNum = typeof year === "string" ? parseInt(year) : year;
+    const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
     const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
 
@@ -797,24 +945,36 @@ async function getGroupAverages(year) {
 }
 
 // ─── Hallazgos Globales (Scanning Historical Data) ─────────────────────
-async function getGlobalInsights(year = 2026) {
+async function getGlobalInsights(month = null, year = 2026) {
     try {
         const db = getDB();
         if (!db) return [];
         const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
         const perfRef = collection(db, "operator_performance");
-        const q = query(perfRef, where("year", "==", year));
-        const snap = await getDocs(q);
+        const snap = await getDocs(query(perfRef, where("year", "==", year)));
         const data = snap.docs.map(d => d.data());
-        if (!data.length) return [];
+        
+        let filteredData = data;
+        if (month) {
+            filteredData = data.filter(d => d.month === month);
+        }
+        
+        if (!filteredData.length) {
+            filteredData = data.filter(d => d.year === year);
+        }
+        
+        if (!filteredData.length) return [];
 
         const insights = [];
-        const monthNum = new Date().getMonth() + 1;
+        const currentMonth = parseInt(month || new Date().getMonth() + 1);
+        const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        const yearNum = parseInt(year);
+        const prevYear = currentMonth === 1 ? yearNum - 1 : yearNum;
 
         // 1. Tendencia de Abandono
-        const currentMonthData = data.filter(d => d.month === monthNum);
-        const prevMonthData = data.filter(d => d.month === monthNum - 1);
+        const currentMonthData = filteredData.filter(d => parseInt(d.month) === currentMonth);
+        const prevMonthData = data.filter(d => parseInt(d.month) === prevMonth && d.year === prevYear);
 
         const getAvgAb = (arr) => arr.length ? arr.reduce((s, v) => s + (v.ab || 0), 0) / arr.length : null;
         const curAvg = getAvgAb(currentMonthData);
@@ -827,46 +987,46 @@ async function getGlobalInsights(year = 2026) {
                     type: diff > 0 ? "red" : "green",
                     icon: diff > 0 ? "📈" : "📉",
                     title: "Tendencia de Abandono",
-                    msg: `El abandono general ${diff > 0 ? "subió" : "bajó"} un ${Math.abs(diff).toFixed(1)}% respecto al mes pasado.`,
+                    msg: `El abandono general ${diff > 0 ? "subió" : "bajó"} un ${Math.abs(diff).toFixed(1)}% respecto al mes anterior.`,
                     value: `${curAvg.toFixed(1)}%`
                 });
             }
         }
 
         // 2. TMO Promedio
-        const avgTmo = data.reduce((s, v) => s + (v.avgManejo || 0), 0) / data.length;
+        const avgTmo = filteredData.reduce((s, v) => s + (v.avgManejo || 0), 0) / filteredData.length;
         if (avgTmo > 180) {
             insights.push({
                 type: "orange",
                 icon: "⏱️",
                 title: "Alerta de TMO",
-                msg: "El TMO promedio anual supera los 3 minutos. Se recomienda revisar protocolos de atención.",
+                msg: "El TMO supera los 3 minutos. Se recomienda revisar protocolos de atención.",
                 value: fmtSeconds(avgTmo)
             });
         }
 
-        // 3. Liderazgo de Célula
-        const groups = [...new Set(data.map(d => d.groupName))].filter(Boolean);
-        const groupStats = groups.map(g => {
-            const gd = data.filter(d => d.groupName === g);
-            return { name: g, ab: getAvgAb(gd) };
-        });
+        // 3. Turno con menor abandono
+        const turnos = [...new Set(filteredData.map(d => d.turno))].filter(Boolean);
+        const turnoStats = turnos.map(t => {
+            const td = filteredData.filter(d => d.turno === t);
+            return { name: t, ab: getAvgAb(td), count: td.reduce((s, v) => s + (v.c || 0), 0) };
+        }).filter(t => t.count > 0);
 
-        const topGroup = [...groupStats].sort((a, b) => a.ab - b.ab)[0];
-        if (topGroup) {
+        const bestTurno = [...turnoStats].sort((a, b) => a.ab - b.ab)[0];
+        if (bestTurno) {
             insights.push({
                 type: "blue",
                 icon: "🏆",
-                title: "Célula Destacada",
-                msg: `El grupo "${topGroup.name}" mantiene la tasa de abandono más baja del año (${topGroup.ab.toFixed(1)}%).`,
-                value: topGroup.name
+                title: "Turno Destacado",
+                msg: `"${bestTurno.name}" tiene la menor tasa de abandono (${bestTurno.ab?.toFixed(1) || 0}%).`,
+                value: bestTurno.name
             });
         }
 
         // 4. Operador de Mayor Productividad
-        const ops = [...new Set(data.map(d => d.normName))];
+        const ops = [...new Set(filteredData.map(d => d.normName))];
         const opStats = ops.map(id => {
-            const od = data.filter(d => d.normName === id);
+            const od = filteredData.filter(d => d.normName === id);
             const totalC = od.reduce((s, v) => s + (v.c || 0), 0);
             const totalH = od.reduce((s, v) => s + (v.totalConectado || 0), 0) / 3600;
             return { name: od[0]?.name, prod: totalH > 1 ? totalC / totalH : 0 };
@@ -878,18 +1038,19 @@ async function getGlobalInsights(year = 2026) {
                 type: "green",
                 icon: "⚡",
                 title: "Máxima Productividad",
-                msg: `El operador "${bestOp.name}" lidera el año con un promedio de ${bestOp.prod.toFixed(1)} atendidas/hora.`,
+                msg: `"${bestOp.name}" lidera con ${bestOp.prod.toFixed(1)} llamadas/hora.`,
                 value: bestOp.prod.toFixed(1)
             });
         }
 
-        // 5. Volumen
-        const totalCalls = data.reduce((s, v) => s + (v.c || 0), 0);
+        // 5. Volumen Total
+        const totalCalls = filteredData.reduce((s, v) => s + (v.c || 0), 0);
+        const periodLabel = month ? `en ${["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"][currentMonth - 1]}` : `en ${year}`;
         insights.push({
             type: "blue",
             icon: "📞",
-            title: "Volumen Anual",
-            msg: `Se han procesado ${totalCalls.toLocaleString("es-AR")} llamadas en lo que va del año ${year}.`,
+            title: "Volumen Total",
+            msg: `Se procesaron ${totalCalls.toLocaleString("es-AR")} llamadas ${periodLabel}.`,
             value: totalCalls.toLocaleString("es-AR")
         });
 
@@ -1662,7 +1823,7 @@ function AutoAlertas({ data }) {
         }
         if (data.agentes?.agents) {
             const main = data.agentes.agents.filter(a => a.ofrecidas >= 30);
-            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: tiempo ausente elevado (${a.tiempoAusente} hs)` }); });
+            main.forEach(a => { const parts = a.tiempoAusente.split(":"); const ausMin = parseInt(parts[0]) * 60 + parseInt(parts[1] || 0); if (ausMin > 130) list.push({ type: "yellow", msg: `${a.nombre}: voz no preparada elevada (${a.tiempoAusente} hs)` }); });
             main.forEach(a => { if (a.abandonadas > 50) list.push({ type: "orange", msg: `${a.nombre}: ${a.abandonadas} abandonadas en cabina — revisar` }); });
         }
         const allDespacho = [...(data.despachoInicio || []), ...(data.despachoDerivacion || []), ...(data.despachoCreacion || [])];
@@ -1773,7 +1934,7 @@ function ViewOperadores({ data }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: C.blue } },
-                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Ausente", "Disponibilidad"].map(h =>
+                            ["Operador", "Ofrecidas", "Contestadas", "Aband. Cabina", "T. Conectado", "T. Avisando", "Voz No Preparada", "Disponibilidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "9px 12px", color: "#fff", fontWeight: 700, textAlign: h === "Operador" ? "left" : "center", fontSize: 11 } }, h)
                             )
                         )
@@ -1787,6 +1948,7 @@ function ViewOperadores({ data }) {
                             ),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center" } }, React.createElement(Badge, { label: a.abandonadas, color: a.abandonadas > 50 ? C.red : C.green, bg: a.abandonadas > 50 ? C.redBg : C.greenBg })),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoConectado),
+                            React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace", color: "#334155" } }, a.tiempoAvisando),
                             React.createElement("td", { style: { padding: "9px 12px", textAlign: "center", fontFamily: "monospace" } },
                                 React.createElement("span", { style: { color: parseTimeToSeconds(a.tiempoAusente) > 7200 ? C.red : "#334155", fontWeight: parseTimeToSeconds(a.tiempoAusente) > 7200 ? 700 : 400 } }, a.tiempoAusente)
                             ),
@@ -3338,7 +3500,7 @@ function ViewComparativaGrupos({ user, onBack }) {
                         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                             React.createElement("thead", null,
                                 React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                                    ["Grupo", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
+                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
                                         React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
                                     )
                                 )
@@ -3371,7 +3533,7 @@ function ViewComparativaGrupos({ user, onBack }) {
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: ANÁLISIS DE OPERADORES (Métricas Mensuales)
 // ════════════════════════════════════════════════════════════════════════════
-function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
+function ViewAnalisisOperadores({ user, onBack, navigateToProfile, filter: externalFilter }) {
     const [perf, setPerf] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState(null);
@@ -3389,9 +3551,12 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
         ]);
         setPerf(pList);
         const map = {};
-        staff.forEach(s => { map[s.normName] = s; });
+        for (const s of staff) {
+            const ta = await getStaffTurnoArea(s.normName, filter.month, parseInt(filter.year));
+            map[s.normName] = { ...s, turno: ta.turno || s.turno || "" };
+        }
         setStaffMap(map);
-        const groups = [...new Set(staff.map(s => s.grupo).filter(Boolean))].sort();
+        const groups = [...new Set(Object.values(map).map(s => s.turno).filter(Boolean))].sort();
         setAvailableGroups(groups);
         setLoading(false);
     };
@@ -3409,12 +3574,29 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const handleUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        e.target.value = "";
         const text = await file.text();
-        const list = parseOperadoresMensualCSV(text, filter.month, filter.year);
-        if (list.length) {
-            await saveOperatorPerformance(list, filter.month, filter.year);
-            loadData();
+        const list = parseOperadoresMensualCSV(text, filter.month, parseInt(filter.year));
+        if (!list.length) {
+            // Mostrar las primeras líneas del CSV para diagnosticar el formato
+            const preview = text
+                .replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+                .split("\n")
+                .slice(0, 6)
+                .map((l, i) => `  L${i + 1}: ${l.substring(0, 80)}`)
+                .join("\n");
+            alert(
+                `⚠️ No se encontraron registros en "${file.name}".\n\n` +
+                `El parser busca una fila de cabecera que contenga las palabras\n` +
+                `"Agente" y "Ofrecidas" (en cualquier columna).\n\n` +
+                `Primeras líneas del archivo:\n${preview}\n\n` +
+                `Verificá que el mes/año seleccionado sea ${filter.month}/${filter.year}.`
+            );
+            return;
         }
+        await saveOperatorPerformance(list, filter.month, parseInt(filter.year));
+        alert(`✅ ${list.length} operadores cargados para ${filter.month}/${filter.year}`);
+        loadData();
     };
 
     const combined = useMemo(() => {
@@ -3423,7 +3605,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             const coefProd = p.c / hours;
             return {
                 ...p,
-                grupo: staffMap[p.normName]?.grupo || "",
+                turno: staffMap[p.normName]?.turno || "",
                 coefProd: coefProd.toFixed(1),
                 scoreQuality: (p.pctProd).toFixed(1),
             };
@@ -3432,7 +3614,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
 
     const filteredCombined = useMemo(() => {
         if (groupFilter === "all") return combined;
-        return combined.filter(p => p.grupo === groupFilter);
+        return combined.filter(p => p.turno === groupFilter);
     }, [combined, groupFilter]);
 
     const stats = useMemo(() => {
@@ -3460,7 +3642,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                     onChange: e => setGroupFilter(e.target.value),
                     style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
                 },
-                    React.createElement("option", { value: "all" }, "Todos los Grupos"),
+                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
                     availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
                 ),
                 React.createElement("select", {
@@ -3485,6 +3667,9 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                 )
             )
         ),
+
+        // Hallazgos Estratégicos
+        React.createElement(PanelGlobalInsights, { user, filter }),
 
         stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
             React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
@@ -3630,7 +3815,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Grupo", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
+                        ["Operador", "Turno", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
@@ -3655,7 +3840,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement(Badge, { label: p.grupo || "S/G", color: p.grupo ? C.mid : C.gray, bg: p.grupo ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno ? C.mid : C.gray, bg: p.turno ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -3673,7 +3858,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                         )
                                     ),
                                     expanded === p.normName && React.createElement("tr", { style: { background: "#f8fafc" } },
-                                        React.createElement("td", { colSpan: 5, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
+                                        React.createElement("td", { colSpan: 6, style: { padding: "24px 40px", borderBottom: `2px solid ${C.blue}` } },
                                             React.createElement("div", { className: "animate-slide-down" },
                                                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 24 } },
                                                     // Col 1: Distribución
@@ -3948,21 +4133,28 @@ function RowStat({ label, value, color }) {
 function ViewGestorPersonal({ user, onBack }) {
     const [staff, setStaff] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(null); // normName being saved
+    const [saving, setSaving] = useState(null);
     const [searchTerm, setSearchTerm] = useState("");
+    const [turnos, setTurnos] = useState(DEFAULT_TURNOS);
+    const [editTurnos, setEditTurnos] = useState(false);
+    const [tempTurnos, setTempTurnos] = useState("");
+    const [selected, setSelected] = useState(new Set());
+    const [bulkTurno, setBulkTurno] = useState("");
 
     const loadStaff = async () => {
         setLoading(true);
-        const [registered, performance] = await Promise.all([
+        const [registered, performance, tList] = await Promise.all([
             getStaffList(),
-            getUniqueOperators()
+            getUniqueOperators(),
+            getConfigTurnos()
         ]);
 
-        // Merge sources: ensure all unique operators seen in performance reports are listed
+        setTurnos(tList);
+
         const masterList = [...registered];
         performance.forEach(op => {
             if (!masterList.find(s => s.normName === op.normName)) {
-                masterList.push({ ...op, turno: "—", grupo: "" });
+                masterList.push({ ...op, turno: "—" });
             }
         });
 
@@ -3972,10 +4164,106 @@ function ViewGestorPersonal({ user, onBack }) {
 
     useEffect(() => { loadStaff(); }, []);
 
-    const handleUpdateGroup = async (normName, group) => {
+    const handleSaveTurnos = async () => {
+        const lista = tempTurnos.split("\n").map(t => t.trim()).filter(t => t);
+        await saveConfigTurnos(lista);
+        setTurnos(lista);
+        setEditTurnos(false);
+    };
+
+    const handleUpdateTurnoDirect = async (normName, newTurno) => {
         setSaving(normName);
-        await updateStaffGroup(normName, group);
-        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, grupo: group } : s));
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
+            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, turno: newTurno } : s));
+        }
+        setSaving(null);
+    };
+
+    const toggleSelect = (normName) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(normName)) next.delete(normName);
+            else next.add(normName);
+            return next;
+        });
+    };
+
+    const toggleSelectAll = () => {
+        if (selected.size === filteredStaff.length) {
+            setSelected(new Set());
+        } else {
+            setSelected(new Set(filteredStaff.map(s => s.normName)));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selected.size === 0) return;
+        if (!confirm(`¿Eliminar ${selected.size} operadores seleccionados?`)) return;
+        setSaving("bulk");
+        for (const normName of selected) {
+            await deleteStaff(normName);
+        }
+        setStaff(prev => prev.filter(s => !selected.has(s.normName)));
+        setSelected(new Set());
+        setSaving(null);
+    };
+
+    const handleBulkUpdateTurno = async () => {
+        if (selected.size === 0 || !bulkTurno) return;
+        setSaving("bulk");
+        const db = getDB();
+        if (db) {
+            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            for (const normName of selected) {
+                await setDoc(doc(db, "staff", normName), { turno: bulkTurno }, { merge: true });
+            }
+        }
+        setStaff(prev => prev.map(s => selected.has(s.normName) ? { ...s, turno: bulkTurno } : s));
+        setSelected(new Set());
+        setBulkTurno("");
+        setSaving(null);
+    };
+
+    const handleBulkUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        e.target.value = "";
+        const text = await file.text();
+        const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+        const db = getDB();
+        if (!db) return;
+        setSaving("bulk");
+        let updated = 0;
+        let skipped = 0;
+        for (const line of lines) {
+            const parts = line.split(";").map(p => p.trim());
+            if (parts.length >= 2 && parts[0]) {
+                const name = parts[0];
+                const turno = parts[1];
+                const normName = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/,/g, "").replace(/\s+/g, " ");
+                const { doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+                const existing = await getDoc(doc(db, "staff", normName));
+                if (existing.exists()) {
+                    await setDoc(doc(db, "staff", normName), { turno }, { merge: true });
+                } else {
+                    await setDoc(doc(db, "staff", normName), { name, turno, normName }, { merge: true });
+                }
+                updated++;
+            }
+        }
+        await loadStaff();
+        alert(`✅ ${updated} operadores actualizados`);
+        setSaving(null);
+    };
+
+    const handleDelete = async (normName, name) => {
+        if (!confirm(`¿Eliminar a "${name}" del personal?`)) return;
+        setSaving(normName);
+        await deleteStaff(normName);
+        setStaff(prev => prev.filter(s => s.normName !== normName));
         setSaving(null);
     };
 
@@ -3992,15 +4280,15 @@ function ViewGestorPersonal({ user, onBack }) {
 
     const filteredStaff = staff.filter(s => {
         const n = (s.name || "").toLowerCase();
-        const g = (s.grupo || "").toLowerCase();
+        const t = (s.turno || "").toLowerCase();
         const sc = (searchTerm || "").toLowerCase();
-        return n.includes(sc) || g.includes(sc);
+        return n.includes(sc) || t.includes(sc);
     });
 
     const groupCounts = useMemo(() => {
         const counts = {};
         staff.forEach(s => {
-            if (s.grupo) counts[s.grupo] = (counts[s.grupo] || 0) + 1;
+            if (s.turno) counts[s.turno] = (counts[s.turno] || 0) + 1;
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1]);
     }, [staff]);
@@ -4011,13 +4299,13 @@ function ViewGestorPersonal({ user, onBack }) {
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
                     React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Gestión de Personal"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Asignación de grupos y organización de operadores")
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Asignación de Turnos a operadores")
                 )
             ),
             React.createElement("div", { style: { position: "relative" } },
                 React.createElement("input", {
                     type: "text",
-                    placeholder: "Buscar por nombre o grupo...",
+                    placeholder: "Buscar por nombre o turno...",
                     value: searchTerm,
                     onChange: e => setSearchTerm(e.target.value),
                     style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 280, color: C.navy }
@@ -4027,21 +4315,58 @@ function ViewGestorPersonal({ user, onBack }) {
         ),
 
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, alignItems: "start" } },
-            // Table
+            // Table header
             React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+                // Bulk actions toolbar
+                selected.size > 0 && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", background: C.light, borderBottom: `1px solid ${C.border}` } },
+                    React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, `${selected.size} seleccionados`),
+                    React.createElement("select", {
+                        value: bulkTurno,
+                        onChange: e => setBulkTurno(e.target.value),
+                        style: { padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }
+                    },
+                        React.createElement("option", { value: "" }, "Cambiar turno..."),
+                        turnos.map(t => React.createElement("option", { key: t, value: t }, t))
+                    ),
+                    React.createElement("button", {
+                        onClick: handleBulkUpdateTurno,
+                        disabled: !bulkTurno,
+                        style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.blue, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: bulkTurno ? 1 : 0.5 }
+                    }, "Aplicar"),
+                    React.createElement("button", {
+                        onClick: handleBulkDelete,
+                        style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }
+                    }, "Eliminar")
+                ),
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Operador", "Turno", "Grupo / Célula"].map(h =>
+                            React.createElement("th", { style: { padding: "14px 20px", width: 40 } },
+                                React.createElement("input", {
+                                    type: "checkbox",
+                                    checked: selected.size === filteredStaff.length && filteredStaff.length > 0,
+                                    onChange: toggleSelectAll,
+                                    style: { cursor: "pointer", width: 16, height: 16 }
+                                })
+                            ),
+                            ["Operador", "Turno", ""].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
                     ),
                     React.createElement("tbody", null,
-                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
-                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 3, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
+                        loading ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando personal...")) :
+                            filteredStaff.length === 0 ? React.createElement("tr", null, React.createElement("td", { colSpan: 4, style: { padding: 60, textAlign: "center", color: C.gray } }, "No se encontraron operadores.")) :
                                 filteredStaff.map((s, i) => (
                                     React.createElement("tr", { key: s.normName, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("input", {
+                                                type: "checkbox",
+                                                checked: selected.has(s.normName),
+                                                onChange: () => toggleSelect(s.normName),
+                                                style: { cursor: "pointer", width: 16, height: 16 }
+                                            })
+                                        ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                                 (saving === s.normName) && React.createElement("span", { className: "animate-spin", style: { fontSize: 12 } }, "⏳"),
@@ -4053,21 +4378,29 @@ function ViewGestorPersonal({ user, onBack }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement(Badge, { label: s.turno || "—", color: C.gray, bg: "#f1f5f9" })
-                                        ),
-                                        React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement("input", {
-                                                type: "text",
-                                                placeholder: "Sin grupo (Ej: Alpha-1)...",
-                                                defaultValue: s.grupo || "",
-                                                onBlur: e => e.target.value !== (s.grupo || "") && handleUpdateGroup(s.normName, e.target.value),
+                                            React.createElement("select", {
+                                                value: s.turno || "",
+                                                onChange: e => handleUpdateTurnoDirect(s.normName, e.target.value),
                                                 style: {
                                                     padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                                                    fontSize: 13, background: s.grupo ? "rgba(46,95,163,0.05)" : "#fff",
-                                                    fontWeight: s.grupo ? 700 : 400, color: s.grupo ? C.mid : C.gray,
-                                                    width: "100%", outline: "none"
+                                                    fontSize: 13, fontWeight: 700, color: s.turno ? C.navy : C.gray,
+                                                    background: "#fff", width: "100%", cursor: "pointer"
                                                 }
-                                            })
+                                            },
+                                                React.createElement("option", { value: "" }, "Seleccionar..."),
+                                                turnos.map(t => React.createElement("option", { key: t, value: t }, t))
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px", textAlign: "center" } },
+                                            React.createElement("button", {
+                                                onClick: () => handleDelete(s.normName, s.name),
+                                                disabled: saving === s.normName,
+                                                style: {
+                                                    background: "transparent", border: "none", cursor: "pointer",
+                                                    fontSize: 16, opacity: saving === s.normName ? 0.5 : 0.7
+                                                },
+                                                title: "Eliminar operador"
+                                            }, "🗑️")
                                         )
                                     )
                                 ))
@@ -4075,11 +4408,11 @@ function ViewGestorPersonal({ user, onBack }) {
                 )
             ),
 
-            // Sidebar: Grupos
+            // Sidebar: Turnos
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
                 React.createElement(Card, null,
-                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 16, fontSize: 14 } }, "🏢 Grupos Detectados"),
-                    groupCounts.length === 0 ? React.createElement("div", { style: { fontSize: 12, color: C.gray, textAlign: "center", padding: "10px 0" } }, "No hay grupos asignados") :
+                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 16, fontSize: 14 } }, "📅 Turnos Activos"),
+                    groupCounts.length === 0 ? React.createElement("div", { style: { fontSize: 12, color: C.gray, textAlign: "center", padding: "10px 0" } }, "No hay turnos asignados") :
                         React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
                             groupCounts.map(([g, c]) =>
                                 React.createElement("div", { key: g, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 } },
@@ -4091,7 +4424,48 @@ function ViewGestorPersonal({ user, onBack }) {
                 ),
                 React.createElement("div", { style: { padding: "12px 16px", background: "#fffbeb", borderRadius: 12, border: `1px solid #fef3c7`, color: "#92400e", fontSize: 12, lineHeight: 1.5 } },
                     React.createElement("div", { style: { fontWeight: 900, marginBottom: 4 } }, "💡 Sugerencia"),
-                    "Asigna nombres de grupos para habilitar filtros avanzados y comparativas por equipo en los paneles de análisis."
+                    "Edita los turnos disponibles en el panel de abajo. Los cambios se aplican a todos los operadores."
+                ),
+
+                // Configuración de Turnos
+                React.createElement(Card, { style: { padding: 16 } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                        React.createElement("div", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, "🔧 Configurar Turnos"),
+                        editTurnos ? 
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", {
+                                    onClick: () => setEditTurnos(false),
+                                    style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray }
+                                }, "✕"),
+                                React.createElement("button", {
+                                    onClick: handleSaveTurnos,
+                                    style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 }
+                                }, "✓")
+                            ) :
+                            React.createElement("button", {
+                                onClick: () => { setTempTurnos(turnos.join("\n")); setEditTurnos(true); },
+                                style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 }
+                            }, "Editar")
+                    ),
+                    editTurnos ?
+                        React.createElement("textarea", {
+                            value: tempTurnos,
+                            onChange: e => setTempTurnos(e.target.value),
+                            style: { width: "100%", height: 100, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "monospace", resize: "none" }
+                        }) :
+                        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                            turnos.map(t => React.createElement("span", { key: t, style: { background: C.light, color: C.navy, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600 } }, t))
+                        )
+                ),
+
+                // Importar Turnos desde CSV
+                React.createElement(Card, { style: { padding: 16 } },
+                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 8, fontSize: 14 } }, "📥 Importar Turnos"),
+                    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 12 } }, "CSV con columnas: Nombre;Turno"),
+                    React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, background: C.blue, color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 } },
+                        saving === "bulk" ? "Procesando..." : "📤 Subir CSV",
+                        React.createElement("input", { type: "file", accept: ".csv", onChange: handleBulkUpload, style: { display: "none" } })
+                    )
                 )
             )
         )
@@ -4099,19 +4473,21 @@ function ViewGestorPersonal({ user, onBack }) {
 }
 
 // ─── Panel de Hallazgos Globales ──────────────────────────────────────────
-function PanelGlobalInsights({ user }) {
+function PanelGlobalInsights({ user, filter }) {
     const [insights, setInsights] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (!user) { setLoading(false); return; }
-        getGlobalInsights().then(res => {
+        const month = filter?.month || (new Date().getMonth() + 1).toString().padStart(2, "0");
+        const year = filter?.year || new Date().getFullYear().toString();
+        getGlobalInsights(month, year).then(res => {
             setInsights(res);
             setLoading(false);
         });
-    }, [user]);
+    }, [user, filter?.month, filter?.year]);
 
-    if (loading) return React.createElement("div", { style: { padding: "24px", textAlign: "center", color: C.gray, fontSize: 13, background: "#f8fafc", borderRadius: 12, border: `1px dashed ${C.border}`, marginBottom: 30 } }, "Analizando tendencias globales…");
+    if (loading) return React.createElement("div", { style: { padding: "24px", textAlign: "center", color: C.gray, fontSize: 13, background: "#f8fafc", borderRadius: 12, border: `1px dashed ${C.border}`, marginBottom: 30 } }, "Analizando tendencias...");
     if (!insights.length) return null;
 
     return React.createElement("div", { className: "animate-fade", style: { marginBottom: 36 } },
@@ -4376,8 +4752,6 @@ function App() {
                     )
                 ),
 
-                React.createElement(PanelGlobalInsights, { user }),
-
                 // ── SECCIÓN ACCESOS RÁPIDOS ──────────────────────────────────
                 React.createElement("div", { style: { marginTop: 40, paddingTop: 30, borderTop: `1px dashed ${C.border}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 } },
                     React.createElement(Card, {
@@ -4475,7 +4849,7 @@ function App() {
             }),
             view === "horas" && React.createElement(ViewHoras, { data: files }),
             view === "operadores" && React.createElement(ViewOperadores, { data: files }),
-            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); } }),
+            view === "operadores_analisis" && React.createElement(ViewAnalisisOperadores, { user, onBack: () => setView("upload"), navigateToProfile: (op) => { setProfileAgent(op); setView("operadores_perfil"); }, filter }),
             view === "operadores_perfil" && React.createElement(ViewPerfilOperador, { user, initialAgent: profileAgent, onBack: () => { setProfileAgent(null); setView("upload"); } }),
             view === "despacho" && React.createElement(ViewDespacho, { data: files }),
             view === "personal" && React.createElement(ViewGestorPersonal, { user, onBack: () => setView("upload") }),
