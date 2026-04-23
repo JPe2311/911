@@ -380,6 +380,7 @@ function parseOperadoresMensualCSV(raw, month, year) {
         pctVozNoPrep: 11,
     };
     let headerFound = false;
+    const colCount = {};
 
     for (let i = 0; i < lines.length; i++) {
         const cols = parseSemicolon(lines[i]);
@@ -391,6 +392,9 @@ function parseOperadoresMensualCSV(raw, month, year) {
             headerFound = true;
             cols.forEach((h, j) => {
                 const key = (h || "").toLowerCase().trim();
+                const baseKey = key.replace(/%/g, "").trim();
+                colCount[baseKey] = (colCount[baseKey] || 0) + 1;
+                const occurrence = colCount[baseKey];
                 if (/agente/i.test(key) && !key.includes("grupo")) idx.name = j;
                 if (key.includes("ofrec")) idx.ofrecidas = j;
                 if (key.includes("contest")) idx.contestadas = j;
@@ -398,15 +402,15 @@ function parseOperadoresMensualCSV(raw, month, year) {
                 if (/en servicio|promedio.*atenci|aht|tmo/i.test(key)) idx.aht = j;
                 if (/t\.?\s*conect|conectado/i.test(key)) idx.tiempoConectado = j;
                 if (/t\.?\s*avis|avisando/i.test(key)) idx.tiempoAvisando = j;
-                // Voz Preparada (tiempo primero, luego %)
+                // Voz Preparada: primera ocurrencia = tiempo, segunda = %
                 if (/voz preparada/i.test(key) && !/no prep/i.test(key)) {
-                    if (idx.vozPreparada === undefined || !key.includes("%")) idx.vozPreparada = j;
-                    else if (key.includes("%")) idx.pctVozPrep = j;
+                    if (occurrence === 1) idx.vozPreparada = j;
+                    else if (occurrence === 2) idx.pctVozPrep = j;
                 }
-                // Voz No Preparada
+                // Voz No Preparada: primera ocurrencia = tiempo, segunda = %
                 if (/voz no preparada/i.test(key)) {
-                    if (idx.vozNoPreparada === undefined || !key.includes("%")) idx.vozNoPreparada = j;
-                    else if (key.includes("%")) idx.pctVozNoPrep = j;
+                    if (occurrence === 1) idx.vozNoPreparada = j;
+                    else if (occurrence === 2) idx.pctVozNoPrep = j;
                 }
             });
             continue;
