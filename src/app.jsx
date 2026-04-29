@@ -2283,47 +2283,7 @@ if (selectedDate) {
                 );
             })
         )
-    );
-}
-            },
-                availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
-            )
-        ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 24 } },
-            ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map(d => 
-                React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 10, fontWeight: 700, color: C.gray, padding: 8 } }, d)
-            )
-        ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 } },
-            Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                const hasReports = calendarData[day]?.length > 0;
-                const bg = hasReports ? (calendarData[day].length === 1 ? (calendarData[day][0].turnoLabel === "07-19" ? C.yellow : C.mid) : C.green) : "#f1f5f9";
-                const color = hasReports ? (calendarData[day].length === 1 ? C.navy : "#fff") : C.gray;
-                return React.createElement("div", {
-                    key: day,
-                    onClick: () => setSelectedDate(day),
-                    style: {
-                        aspectRatio: "1",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: bg,
-                        color: color,
-                        borderRadius: 10,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: hasReports ? "pointer" : "default",
-                        opacity: hasReports ? 1 : 0.5,
-                        transition: "all .15s"
-                    }
-                },
-                    day,
-                    hasReports && React.createElement("span", { style: { fontSize: 9, marginTop: 2 } }, `${calendarData[day].length}`)
-                )
-            })
-        )
-    );
+);
 }
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
                         React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
