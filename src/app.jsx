@@ -2208,12 +2208,46 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     )
                 )
             ),
-            canDelete(selectedReport) && React.createElement(Card, { style: { padding: 16 } },
+            canDelete(selectedReport) && React.createElement(Card, { style: { padding: 16, marginBottom: 20 } },
                 React.createElement("button", {
                     onClick: () => handleDelete(selectedReport),
                     disabled: deleting === selectedReport.id,
                     style: { background: C.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", width: "100%" }
                 }, deleting === selectedReport.id ? "Eliminando…" : "🗑️ Eliminar este reporte")
+            ),
+
+            React.createElement(Card, { style: { marginBottom: 20 } },
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 } },
+                    React.createElement(StatKpi, { label: "Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.blue }),
+                    React.createElement(StatKpi, { label: "Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
+                    React.createElement(StatKpi, { label: "Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
+                )
+            ),
+
+            selectedReport.datos?.agentes?.agents?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
+                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
+                React.createElement("div", { style: { overflowX: "auto" } },
+                    React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
+                        React.createElement("thead", null,
+                            React.createElement("tr", { style: { background: C.blue } },
+                                ["Operador", "Ofrecidas", "Contestadas", "Abandonadas", "Disponibilidad"].map(h =>
+                                    React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
+                                )
+                            )
+                        ),
+                        React.createElement("tbody", null,
+                            selectedReport.datos.agentes.agents.map((a, i) =>
+                                React.createElement("tr", { key: a.nombre + i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
+                                    React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
+                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
+                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
+                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
+                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${(a.disponibilidad || 0).toFixed(1)}%`)
+                                )
+                            )
+                        )
+                    )
+                )
             )
         );
     }
@@ -2283,41 +2317,11 @@ if (selectedDate) {
                 );
             })
         )
-);
+        )
+    );
 }
-                    React.createElement(Card, { style: { marginBottom: 20 } },
-                    React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.mid }),
-                    React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
-                    React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
-                )
-            ),
-            selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
-                React.createElement("div", { style: { overflowX: "auto" } },
-                    React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
-                        React.createElement("thead", null,
-                            React.createElement("tr", { style: { background: C.blue } },
-                                ["Operador", "Ofrecidas", "Contestadas", "Abandonadas", "Disponibilidad"].map(h =>
-                                    React.createElement("th", { key: h, style: { padding: "6px 10px", color: "#fff", fontWeight: 700, textAlign: "left" } }, h)
-                                )
-                            )
-                        ),
-                        React.createElement("tbody", null,
-                            selectedReport.datos.agentes.map((a, i) =>
-                                React.createElement("tr", { key: a.nombre + i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                                    React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
-                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
-                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.green } }, a.contestadas),
-                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", fontWeight: 600, color: C.red } }, a.abandonadas),
-                                    React.createElement("td", { style: { padding: "6px 10px", textAlign: "center", color: a.disponibilidad > 80 ? C.green : a.disponibilidad > 60 ? C.yellow : C.red } }, `${(a.disponibilidad || 0).toFixed(1)}%`)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        );
-    }
+
+// ... existing code ...
 
     return React.createElement("div", { className: "animate-fade" },
         React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 } },
@@ -4793,9 +4797,7 @@ function App() {
         // TOPBAR
         React.createElement("div", { className: "no-print", style: { background: `linear-gradient(90deg, ${C.navy} 0%, ${C.blue} 100%)`, padding: "0 28px", display: "flex", alignItems: "center", gap: 0, height: 56, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginRight: 32 } },
-                React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 48 } }),
-                React.createElement("div", null,
-                )
+                React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 48 } })
             ),
             hasData && React.createElement("div", { style: { display: "flex", gap: 4, flex: 1 } },
                 navItems.filter(n => n.avail).map(n =>
