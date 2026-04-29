@@ -2317,7 +2317,6 @@ if (selectedDate) {
                 );
             })
         )
-        )
     );
 }
 
