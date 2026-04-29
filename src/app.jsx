@@ -2218,7 +2218,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         );
     }
 
-    if (selectedDate) {
+if (selectedDate) {
         return React.createElement("div", { className: "animate-fade" },
             React.createElement(Card, { style: { marginBottom: 20 } },
                 React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
@@ -2227,33 +2227,25 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     React.createElement("div", { style: { fontSize: 12, color: C.gray } }, `${selectedDayReports.length} turnos`)
                 )
             ),
-            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-selectedDayReports.length === 0 ? 
-                    React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día") :
-                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-                        selectedDayReports.map(r => 
-                            React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
-                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-                                    React.createElement("span", { style: { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
-                                    React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
-                                        React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
-                                        React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
-                                ),
-                                React.createElement("div", { style: { display: "flex", gap: 8 } },
-                                    React.createElement("button", {
-                                        onClick: () => setSelectedReport(r),
-                                        style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                    }, "Ver"),
-                                    onLoadReport && React.createElement("button", {
-                                        onClick: () => onLoadReport(r),
-                                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                    }, "⚡")
+            selectedDayReports.length === 0 
+                ? React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día")
+                : React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+                    selectedDayReports.map(r => 
+                        React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+                                React.createElement("span", { style: { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
+                                React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
+                                    React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
                                 )
+                            ),
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Ver"),
+                                onLoadReport && React.createElement("button", { onClick: () => onLoadReport(r), style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "⚡")
                             )
                         )
                     )
-                ))
-            )
+                )
         );
     }
 
@@ -2266,17 +2258,33 @@ selectedDayReports.length === 0 ?
             )
         ),
         React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
-            React.createElement("select", {
-                value: filterMonth,
-                onChange: e => setFilterMonth(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
-            },
+            React.createElement("select", { value: filterMonth, onChange: e => setFilterMonth(e.target.value), style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" } },
                 monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
             ),
-            React.createElement("select", {
-                value: filterYear,
-                onChange: e => setFilterYear(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+            React.createElement("select", { value: filterYear, onChange: e => setFilterYear(e.target.value), style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" } },
+                availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
+            )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 24 } },
+            ["Dom", "Lun", "Mar", "Mié", "Vie", "Sáb", "Sáb"].map(d => React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 10, fontWeight: 700, color: C.gray, padding: 8 } }, d))
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 } },
+            Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
+                const hasReports = calendarData[day]?.length > 0;
+                const bg = hasReports ? (calendarData[day].length === 1 ? (calendarData[day][0].turnoLabel === "07-19" ? C.yellow : C.mid) : C.green) : "#f1f5f9";
+                const color = hasReports ? (calendarData[day].length === 1 ? C.navy : "#fff") : C.gray;
+                return React.createElement("div", {
+                    key: day,
+                    onClick: () => hasReports && setSelectedDate(day),
+                    style: { aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, color: color, borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: hasReports ? "pointer" : "default", opacity: hasReports ? 1 : 0.5 }
+                },
+                    day,
+                    hasReports && React.createElement("span", { style: { fontSize: 9, marginTop: 2 } }, `${calendarData[day].length}`)
+                );
+            })
+        )
+    );
+}
             },
                 availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
             )
