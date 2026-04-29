@@ -2228,29 +2228,31 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                 )
             ),
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-                selectedDayReports.length === 0 ? 
+selectedDayReports.length === 0 ? 
                     React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día") :
-                    selectedDayReports.map(r => (
-                        React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
-                            React.createElement("div", { display: "flex", alignItems: "center", gap: 12 } },
-                                React.createElement("span", { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
-                                React.createElement("div", null,
-                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
-                                    React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
+                    React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+                        selectedDayReports.map(r => 
+                            React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
+                                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+                                    React.createElement("span", { style: { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
+                                    React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+                                        React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
+                                        React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
+                                ),
+                                React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                    React.createElement("button", {
+                                        onClick: () => setSelectedReport(r),
+                                        style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
+                                    }, "Ver"),
+                                    onLoadReport && React.createElement("button", {
+                                        onClick: () => onLoadReport(r),
+                                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
+                                    }, "⚡")
                                 )
-                            ),
-                            React.createElement("div", { style: { display: "flex", gap: 8 } },
-                                React.createElement("button", {
-                                    onClick: () => setSelectedReport(r),
-                                    style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                }, "Ver"),
-                                onLoadReport && React.createElement("button", {
-                                    onClick: () => onLoadReport(r),
-                                    style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                }, "⚡")
                             )
                         )
-                    ))
+                    )
+                ))
             )
         );
     }
