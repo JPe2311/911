@@ -2285,14 +2285,7 @@ if (selectedDate) {
         )
 );
 }
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
-                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
-                    )
-                )
-            ),
-            React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 } },
+                    React.createElement(Card, { style: { marginBottom: 20 } },
                     React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.mid }),
                     React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
                     React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
