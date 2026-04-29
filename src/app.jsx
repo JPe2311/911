@@ -629,19 +629,21 @@ async function saveReportToFirestore(files, meta, user) {
     }
 }
 
-async function loadReportsFromFirestore() {
+async function loadReportsFromFirestore(year = null) {
     const db = getDB();
     if (!db) return [];
     try {
-        const { collection, query, orderBy, limit, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        // Carga últimos 45 reportes para optimizar lecturas de Firebase
-        const q = query(
+        const { collection, query, orderBy, getDocs, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
+        let q = query(
             collection(db, "informes"),
-            orderBy("fechaGuardado", "desc"),
-            limit(45)
+            orderBy("fechaGuardado", "desc")
         );
         const snap = await getDocs(q);
-        return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() }));
+        return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() })).filter(r => {
+            const reportYear = r.meta?.year || parseInt(r.id?.substring(6, 10));
+            return reportYear === yearNum;
+        });
     } catch (e) {
         console.error("✗ Error cargando reportes:", e);
         return [];
@@ -2076,7 +2078,9 @@ function getTurnoStats(turnoLabel, history) {
 function ViewHistorial({ user, onBack, onLoadReport }) {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [filterTurno, setFilterTurno] = useState(null);
+    const [filterMonth, setFilterMonth] = useState(() => (new Date().getMonth() + 1).toString().padStart(2, "0"));
+    const [filterYear, setFilterYear] = useState(() => new Date().getFullYear().toString());
+    const [selectedDate, setSelectedDate] = useState(null);
     const [selectedReport, setSelectedReport] = useState(null);
     const [deleting, setDeleting] = useState(null);
 
@@ -2086,7 +2090,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         let cancelled = false;
         setLoading(true);
         if (isFirebase) {
-            loadReportsFromFirestore().then(reports => {
+            loadReportsFromFirestore(filterYear).then(reports => {
                 if (!cancelled) { setHistory(reports); setLoading(false); }
             });
         } else {
@@ -2094,7 +2098,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
             setLoading(false);
         }
         return () => { cancelled = true; };
-    }, [user]);
+    }, [user, filterYear]);
 
     const handleDelete = async (report) => {
         if (isFirebase && report.uid !== user?.uid) return;
@@ -2111,8 +2115,29 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         setDeleting(null);
     };
 
-    const turnos = [...new Set(history.map(r => r.turnoLabel))].filter(Boolean).sort().reverse();
-    const filteredReports = filterTurno ? history.filter(r => r.turnoLabel === filterTurno) : history;
+    const filteredReports = history.filter(r => {
+        const reportMonth = r.meta?.monthNum?.toString().padStart(2, "0") || r.id?.substring(3, 5);
+        const reportYear = r.meta?.year?.toString() || r.id?.substring(6, 10);
+        return reportMonth === filterMonth && reportYear === filterYear;
+    });
+
+    const calendarData = useMemo(() => {
+        const days = {};
+        filteredReports.forEach(r => {
+            const day = r.meta?.day || parseInt(r.id?.substring(0, 2)) || 1;
+            if (!days[day]) days[day] = [];
+            days[day].push(r);
+        });
+        return days;
+    }, [filteredReports]);
+
+    const availableYears = useMemo(() => {
+        const years = new Set(history.map(h => h.meta?.year || parseInt(h.id?.substring(6, 10))).filter(Boolean));
+        return [...years].sort((a, b) => b - a);
+    }, [history]);
+
+    const selectedDayReports = selectedDate ? calendarData[selectedDate] || [] : [];
+
     const canDelete = (r) => !isFirebase || r.uid === user?.uid;
 
     if (loading) return React.createElement("div", { style: { padding: 60, textAlign: "center", color: C.gray } }, "Cargando historial…");
@@ -2126,6 +2151,8 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         React.createElement("div", { style: { fontSize: 13 } }, isFirebase ? "Los reportes que generes se guardarán automáticamente en Firestore." : "Los reportes se guardan localmente en este navegador.")
     );
 
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
     if (selectedReport) {
         const avg = arr => Array.isArray(arr) && arr.length ? Math.round(arr.reduce((s, v) => s + (v.tiempoSec || 0), 0) / arr.length) : 0;
         const dpI = selectedReport.datos?.despachoInicio || [];
@@ -2136,7 +2163,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
             React.createElement(Card, { style: { marginBottom: 20 } },
                 React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 } },
                     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-                        React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Listado"),
+                        React.createElement("button", { onClick: () => setSelectedReport(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver"),
                         React.createElement("div", null,
                             React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Reporte: ${selectedReport.id}`),
                             React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, `Token: ${selectedReport.token}`)
@@ -2144,8 +2171,8 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     ),
                     onLoadReport && React.createElement("button", {
                         onClick: () => onLoadReport(selectedReport),
-                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 4px 12px rgba(16,185,129,0.2)" }
-                    }, "⚡ Cargar en Dashboard")
+                        style: { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer" }
+                    }, "⚡ Cargar")
                 ),
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 } },
                     React.createElement("div", null,
@@ -2153,6 +2180,141 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                         React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turnoLabel)
                     ),
                     React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Fecha"),
+                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.id?.substring(0, 10))
+                    ),
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Llamadas"),
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.blue } }, selectedReport.datos?.agentes?.agents?.length || 0)
+                    ),
+                    React.createElement("div", null,
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Aband. > 30s"),
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.red } }, selectedReport.datos?.abandonadas?.totals?.abandonadas30 || 0)
+                    )
+                ),
+                React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase" } }, "Resumen de Tiempos"),
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 } },
+                    React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
+                        React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.blue } }, fmtSeconds(avg(dpI))),
+                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Inicio → Despacho")
+                    ),
+                    React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
+                        React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.orange } }, fmtSeconds(avg(dpD))),
+                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Derivac. → Inicio")
+                    ),
+                    React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
+                        React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.green } }, fmtSeconds(avg(dpC))),
+                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Creac. → Despacho")
+                    )
+                )
+            ),
+            canDelete(selectedReport) && React.createElement(Card, { style: { padding: 16 } },
+                React.createElement("button", {
+                    onClick: () => handleDelete(selectedReport),
+                    disabled: deleting === selectedReport.id,
+                    style: { background: C.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", width: "100%" }
+                }, deleting === selectedReport.id ? "Eliminando…" : "🗑️ Eliminar este reporte")
+            )
+        );
+    }
+
+    if (selectedDate) {
+        return React.createElement("div", { className: "animate-fade" },
+            React.createElement(Card, { style: { marginBottom: 20 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                    React.createElement("button", { onClick: () => setSelectedDate(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Calendario"),
+                    React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: C.navy } }, `Día ${selectedDate}`),
+                    React.createElement("div", { style: { fontSize: 12, color: C.gray } }, `${selectedDayReports.length} turnos`)
+                )
+            ),
+            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+                selectedDayReports.length === 0 ? 
+                    React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día") :
+                    selectedDayReports.map(r => (
+                        React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
+                            React.createElement("div", { display: "flex", alignItems: "center", gap: 12 } },
+                                React.createElement("span", { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
+                                React.createElement("div", null,
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
+                                    React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
+                                )
+                            ),
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", {
+                                    onClick: () => setSelectedReport(r),
+                                    style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
+                                }, "Ver"),
+                                onLoadReport && React.createElement("button", {
+                                    onClick: () => onLoadReport(r),
+                                    style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
+                                }, "⚡")
+                            )
+                        )
+                    ))
+            )
+        );
+    }
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 } },
+            React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+            React.createElement("div", null,
+                React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📅 Historial de Reportes"),
+                React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Selecciona un día para ver los turnos")
+            )
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
+            React.createElement("select", {
+                value: filterMonth,
+                onChange: e => setFilterMonth(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+            },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", {
+                value: filterYear,
+                onChange: e => setFilterYear(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+            },
+                availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
+            )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 24 } },
+            ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map(d => 
+                React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 10, fontWeight: 700, color: C.gray, padding: 8 } }, d)
+            )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 } },
+            Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
+                const hasReports = calendarData[day]?.length > 0;
+                const bg = hasReports ? (calendarData[day].length === 1 ? (calendarData[day][0].turnoLabel === "07-19" ? C.yellow : C.mid) : C.green) : "#f1f5f9";
+                const color = hasReports ? (calendarData[day].length === 1 ? C.navy : "#fff") : C.gray;
+                return React.createElement("div", {
+                    key: day,
+                    onClick: () => setSelectedDate(day),
+                    style: {
+                        aspectRatio: "1",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: bg,
+                        color: color,
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: hasReports ? "pointer" : "default",
+                        opacity: hasReports ? 1 : 0.5,
+                        transition: "all .15s"
+                    }
+                },
+                    day,
+                    hasReports && React.createElement("span", { style: { fontSize: 9, marginTop: 2 } }, `${calendarData[day].length}`)
+                )
+            })
+        )
+    );
+}
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
                         React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
                     )
