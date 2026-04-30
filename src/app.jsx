@@ -2286,11 +2286,15 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     ),
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Fecha"),
-                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turno?.fecha || "S/D")
+                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, 
+                            selectedReport.turno?.fecha || selectedReport.fecha || selectedReport.turnoLabel?.split(" ")[0] || "S/D"
+                        )
                     ),
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Operadores"),
-                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy } }, (selectedReport.datos?.agentes?.data?.length || 0))
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy } }, 
+                            (selectedReport.datos?.agentes?.data?.length || selectedReport.datos?.agentes?.agents?.length || selectedReport.resumen?.totalAgentes || 0)
+                        )
                     )
                 ),
                 React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase" } }, "Resumen de Tiempos"),
@@ -2372,7 +2376,7 @@ if (selectedDate) {
                                 React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
                                     React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
                                     React.createElement("div", { style: { fontSize: 11, color: C.gray } }, 
-                                        `${r.datos?.agentes?.data?.length || 0} operadores • por ${r.createdBy || "S/D"}`
+                                        `${selectedReport.datos?.agentes?.data?.length || selectedReport.datos?.agentes?.agents?.length || 0} operadores • por ${r.createdBy || r.userName || "Usuario"}`
                                     )
                                 )
                             ),
