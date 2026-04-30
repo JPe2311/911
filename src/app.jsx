@@ -2119,23 +2119,49 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
             const ok = await deleteReportFromFirestore(report.firestoreId);
             if (ok) setHistory(h => h.filter(r => r.firestoreId !== report.firestoreId));
         } else {
-            const updated = getLocalHistory().filter(r => r.id !== report.id);
-            localStorage.setItem("sae911_reports", JSON.stringify(updated));
-            setHistory(updated.slice().reverse());
+            try {
+                const stored = JSON.parse(localStorage.getItem("sae911_reports") || "[]");
+                const updated = stored.filter(r => r.id !== report.id);
+                localStorage.setItem("sae911_reports", JSON.stringify(updated));
+                setHistory(updated.slice().reverse());
+            } catch (_) {}
         }
         setDeleting(null);
     };
 
     const filteredReports = history.filter(r => {
-        const reportMonth = r.meta?.monthNum?.toString().padStart(2, "0") || r.id?.substring(3, 5);
-        const reportYear = r.meta?.year?.toString() || r.id?.substring(6, 10);
-        return reportMonth === filterMonth && reportYear === filterYear;
+        // Derive month and year from fechaGuardado (ISO string) or turno.fecha
+        let savedDate = null;
+        if (r.fechaGuardado) {
+            savedDate = new Date(r.fechaGuardado);
+        } else if (r.turno?.fecha) {
+            // turno.fecha is typically "dd/mm/yyyy"
+            const parts = r.turno.fecha.split(/[\/\-]/);
+            if (parts.length === 3) {
+                // try dd/mm/yyyy or yyyy-mm-dd
+                const y = parts[2]?.length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
+                const m = parts[2]?.length === 4 ? parseInt(parts[1]) : parseInt(parts[1]);
+                const d = parts[2]?.length === 4 ? parseInt(parts[0]) : parseInt(parts[2]);
+                savedDate = new Date(y, m - 1, d);
+            }
+        }
+        if (!savedDate || isNaN(savedDate)) return false;
+        const rMonth = (savedDate.getMonth() + 1).toString().padStart(2, "0");
+        const rYear = savedDate.getFullYear().toString();
+        return rMonth === filterMonth && rYear === filterYear;
     });
 
     const calendarData = useMemo(() => {
         const days = {};
         filteredReports.forEach(r => {
-            const day = r.meta?.day || parseInt(r.id?.substring(0, 2)) || 1;
+            let day = 1;
+            if (r.fechaGuardado) {
+                day = new Date(r.fechaGuardado).getDate();
+            } else if (r.turno?.fecha) {
+                const parts = r.turno.fecha.split(/[\/\-]/);
+                // dd/mm/yyyy format
+                day = parseInt(parts[0]) || 1;
+            }
             if (!days[day]) days[day] = [];
             days[day].push(r);
         });
@@ -2143,7 +2169,16 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
     }, [filteredReports]);
 
     const availableYears = useMemo(() => {
-        const years = new Set(history.map(h => h.meta?.year || parseInt(h.id?.substring(6, 10))).filter(Boolean));
+        const currentYear = new Date().getFullYear();
+        const years = new Set([currentYear]);
+        history.forEach(r => {
+            if (r.fechaGuardado) { years.add(new Date(r.fechaGuardado).getFullYear()); return; }
+            if (r.turno?.fecha) {
+                const parts = r.turno.fecha.split(/[\/\-]/);
+                const y = parts[2]?.length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
+                if (y > 2000) years.add(y);
+            }
+        });
         return [...years].sort((a, b) => b - a);
     }, [history]);
 
