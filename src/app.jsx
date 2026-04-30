@@ -99,16 +99,6 @@ function parseLines(raw) {
     return raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 }
 
-const normalizeName = (name) => {
-    if (!name) return "";
-    return name
-        .toUpperCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/,/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-};
 
 function parseAgentes(raw) {
     const lines = parseLines(raw);
@@ -354,7 +344,13 @@ function parseDespacho(raw, type = "despacho") {
 // ─── OPERATOR PERFORMANCE HELPERS ───────────────────────────────────────────
 function normalizeName(name) {
     if (!name || typeof name !== "string") return "";
-    return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim().replace(/\s+/g, " ");
+    return name
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/,/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function parseNominaCSV(raw) {
