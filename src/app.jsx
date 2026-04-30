@@ -2384,8 +2384,21 @@ if (selectedDate) {
             React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
             React.createElement("div", null,
                 React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📅 Historial de Reportes"),
-                React.createElement("div", { style: { color: C.gray, fontSize: 11, marginTop: 4, background: "#e2e8f0", padding: "2px 8px", borderRadius: 4, display: "inline-block" } }, 
-                    `Total en base: ${history.length} | Filtrados: ${filteredReports.length}`
+                React.createElement("div", { style: { color: "#1e293b", fontSize: 11, marginTop: 4, background: "#f1f5f9", padding: "4px 10px", borderRadius: 4, border: "1px solid #cbd5e1", display: "inline-block" } }, 
+                    (() => {
+                        const counts = {};
+                        history.forEach(r => {
+                            const d = getReportDate(r);
+                            if (d && !isNaN(d.getTime())) {
+                                const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}`;
+                                counts[key] = (counts[key] || 0) + 1;
+                            } else {
+                                counts["Sin Fecha"] = (counts["Sin Fecha"] || 0) + 1;
+                            }
+                        });
+                        const summary = Object.entries(counts).map(([k, v]) => `${k}(${v})`).join(" | ");
+                        return `Total: ${history.length} | Desglose: ${summary || "Nada"}`;
+                    })()
                 )
             )
         ),
