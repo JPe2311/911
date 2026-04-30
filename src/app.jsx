@@ -2129,39 +2129,48 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         setDeleting(null);
     };
 
-    const filteredReports = history.filter(r => {
-        // Derive month and year from fechaGuardado (ISO string) or turno.fecha
-        let savedDate = null;
-        if (r.fechaGuardado) {
-            savedDate = new Date(r.fechaGuardado);
-        } else if (r.turno?.fecha) {
-            // turno.fecha is typically "dd/mm/yyyy"
+    // Helper: get the SHIFT date (not upload date) for a report
+    // Prioritizes turno.fecha (from CSV metadata) over fechaGuardado (Firestore upload time)
+    const getReportDate = (r) => {
+        // 1️⃣ turno.fecha: "dd/mm/yyyy" — the actual shift date from the CSV
+        if (r.turno?.fecha) {
             const parts = r.turno.fecha.split(/[\/\-]/);
             if (parts.length === 3) {
-                // try dd/mm/yyyy or yyyy-mm-dd
-                const y = parts[2]?.length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
-                const m = parts[2]?.length === 4 ? parseInt(parts[1]) : parseInt(parts[1]);
-                const d = parts[2]?.length === 4 ? parseInt(parts[0]) : parseInt(parts[2]);
-                savedDate = new Date(y, m - 1, d);
+                const isYMD = parts[0].length === 4; // yyyy-mm-dd format
+                const y = isYMD ? parseInt(parts[0]) : parseInt(parts[2]);
+                const m = parseInt(parts[1]);
+                const d = isYMD ? parseInt(parts[2]) : parseInt(parts[0]);
+                if (y > 2000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+                    return new Date(y, m - 1, d);
+                }
             }
         }
-        if (!savedDate || isNaN(savedDate)) return false;
-        const rMonth = (savedDate.getMonth() + 1).toString().padStart(2, "0");
-        const rYear = savedDate.getFullYear().toString();
+        // 2️⃣ turnoLabel: "dd/mm/yyyy HH:MM → HH:MM" — extract date from label
+        if (r.turnoLabel) {
+            const m = r.turnoLabel.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            if (m) {
+                const [, d, mo, y] = m;
+                return new Date(parseInt(y), parseInt(mo) - 1, parseInt(d));
+            }
+        }
+        // 3️⃣ fechaGuardado: ISO upload timestamp — last resort
+        if (r.fechaGuardado) return new Date(r.fechaGuardado);
+        return null;
+    };
+
+    const filteredReports = history.filter(r => {
+        const d = getReportDate(r);
+        if (!d || isNaN(d)) return false;
+        const rMonth = (d.getMonth() + 1).toString().padStart(2, "00").slice(-2);
+        const rYear = d.getFullYear().toString();
         return rMonth === filterMonth && rYear === filterYear;
     });
 
     const calendarData = useMemo(() => {
         const days = {};
         filteredReports.forEach(r => {
-            let day = 1;
-            if (r.fechaGuardado) {
-                day = new Date(r.fechaGuardado).getDate();
-            } else if (r.turno?.fecha) {
-                const parts = r.turno.fecha.split(/[\/\-]/);
-                // dd/mm/yyyy format
-                day = parseInt(parts[0]) || 1;
-            }
+            const d = getReportDate(r);
+            const day = d ? d.getDate() : 1;
             if (!days[day]) days[day] = [];
             days[day].push(r);
         });
@@ -2172,12 +2181,8 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         const currentYear = new Date().getFullYear();
         const years = new Set([currentYear]);
         history.forEach(r => {
-            if (r.fechaGuardado) { years.add(new Date(r.fechaGuardado).getFullYear()); return; }
-            if (r.turno?.fecha) {
-                const parts = r.turno.fecha.split(/[\/\-]/);
-                const y = parts[2]?.length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
-                if (y > 2000) years.add(y);
-            }
+            const d = getReportDate(r);
+            if (d && !isNaN(d) && d.getFullYear() > 2000) years.add(d.getFullYear());
         });
         return [...years].sort((a, b) => b - a);
     }, [history]);
