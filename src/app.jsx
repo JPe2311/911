@@ -2129,25 +2129,38 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         setDeleting(null);
     };
 
-    // Multi-format date parser (handles all CSV date formats)
-    const MESES_ES = { enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,
-        julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12 };
+    // Multi-format date parser (Extremely robust)
+    const MESES_ES = { 
+        enero:1, ene:1, febrero:2, feb:2, marzo:3, mar:3, abril:4, abr:4, mayo:5, may:5, junio:6, jun:6,
+        julio:7, jul:7, agosto:8, ago:8, septiembre:9, sep:9, octubre:10, oct:10, noviembre:11, nov:11, diciembre:12, dic:12 
+    };
+
     const parseAnyDate = (str) => {
         if (!str || typeof str !== "string" || !str.trim()) return null;
-        str = str.trim();
-        // dd/mm/yyyy or dd-mm-yyyy
-        let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-        // yyyy-mm-dd (ISO)
-        m = str.match(/^(\d{4})[\-](\d{2})[\-](\d{2})/);
+        const clean = str.trim().toLowerCase().replace(/,/g, "");
+        
+        // 1. dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy
+        let m = clean.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+        if (m) {
+            let y = parseInt(m[3]);
+            if (y < 100) y += 2000; // Handle 24, 25, 26...
+            return new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
+        }
+
+        // 2. yyyy-mm-dd (ISO-ish)
+        m = clean.match(/^(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})/);
         if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-        // "29 de abril de 2026" (Spanish text)
-        const lower = str.toLowerCase();
-        m = lower.match(/(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/);
-        if (m && MESES_ES[m[2]]) return new Date(parseInt(m[3]), MESES_ES[m[2]] - 1, parseInt(m[1]));
-        // "abril 2026" (month name + year)
-        m = lower.match(/([a-z]+)\s+(\d{4})/);
-        if (m && MESES_ES[m[1]]) return new Date(parseInt(m[2]), MESES_ES[m[1]] - 1, 1);
+
+        // 3. "29 de abril de 2026" or "15 abr 2026"
+        m = clean.match(/(\d{1,2})\s+(?:de\s+)?([a-z\u00e1\u00e9\u00ed\u00f3\u00fa]{3,})\s+(?:de\s+)?(\d{2,4})/);
+        if (m) {
+            const monthName = m[2].substring(0, 3); // Take first 3 chars
+            if (MESES_ES[monthName]) {
+                let y = parseInt(m[3]);
+                if (y < 100) y += 2000;
+                return new Date(y, MESES_ES[monthName] - 1, parseInt(m[1]));
+            }
+        }
         return null;
     };
 
@@ -2165,8 +2178,8 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
 
     const filteredReports = history.filter(r => {
         const d = getReportDate(r);
-        if (!d || isNaN(d)) return false;
-        const rMonth = (d.getMonth() + 1).toString().padStart(2, "00").slice(-2);
+        if (!d || isNaN(d.getTime())) return false;
+        const rMonth = (d.getMonth() + 1).toString().padStart(2, "0");
         const rYear = d.getFullYear().toString();
         return rMonth === filterMonth && rYear === filterYear;
     });
