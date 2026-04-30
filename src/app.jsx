@@ -3648,8 +3648,8 @@ function ViewComparativaGrupos({ user, onBack }) {
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Comparativa de Grupos"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Métricas agregadas por Célula/Grupo")
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Análisis de Operadores"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Desempeño individual y evolución mensual")
                 )
             ),
             React.createElement("div", { style: { display: "flex", gap: 12 } },
@@ -3660,6 +3660,14 @@ function ViewComparativaGrupos({ user, onBack }) {
                 },
                     React.createElement("option", { value: "all" }, "Todas las Áreas"),
                     availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+                ),
+                React.createElement("select", {
+                    value: groupFilter,
+                    onChange: e => setGroupFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                    availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
                 ),
                 React.createElement("select", {
                     value: filter.month,
@@ -4078,7 +4086,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Turno", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
+                        ["Operador", "Turno", "Área", "Atendidas", "Prod (At/Hr)", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
@@ -4103,7 +4111,10 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno ? C.mid : C.gray, bg: p.turno ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno && p.turno !== "—" ? C.mid : C.gray, bg: p.turno && p.turno !== "—" ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: p.area || "S/A", color: p.area && p.area !== "—" ? C.navy : C.gray, bg: p.area && p.area !== "—" ? "rgba(15,36,68,0.08)" : "#f1f5f9" })
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -4112,7 +4123,6 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                                 React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue })
                                             )
                                         ),
-                                        React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 700 } }, `${p.pctProd}%`),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                                 React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
