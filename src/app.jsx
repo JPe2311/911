@@ -2320,63 +2320,7 @@ if (selectedDate) {
     );
 }
 
-// ... existing code ...
 
-    return React.createElement("div", { className: "animate-fade" },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 } },
-            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
-                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
-                React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📋 Historial de Reportes"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, `${history.length} reportes guardados`)
-                )
-            ),
-            isFirebase && React.createElement("button", {
-                onClick: () => { setLoading(true); loadReportsFromFirestore().then(r => { setHistory(r); setLoading(false); }); },
-                style: { background: C.greenBg, border: `1px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }
-            }, "↺ Actualizar")
-        ),
-
-        React.createElement(Card, { style: { marginBottom: 20 } },
-            React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Filtrar por Turno"),
-            React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-                React.createElement("button", { onClick: () => setFilterTurno(null), style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === null ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === null ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === null ? C.blue : C.gray } }, `Todos (${history.length})`),
-                turnos.map(turno => React.createElement("button", { key: turno, onClick: () => setFilterTurno(turno), style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === turno ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === turno ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === turno ? C.blue : C.gray } }, turno))
-            )
-        ),
-
-        React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
-            React.createElement("div", { style: { overflowX: "auto" } },
-                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
-                    React.createElement("thead", null,
-                        React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                            ["ID Reporte", "Usuario", "Fecha", "Turno", "Contest.", "Aband.", "Acciones"].map(h =>
-                                React.createElement("th", { key: h, style: { padding: "14px 16px", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
-                            )
-                        )
-                    ),
-                    React.createElement("tbody", null,
-                        filteredReports.map((r, i) => {
-                            const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleDateString("es-ES") : "-";
-                            return React.createElement("tr", { key: r.id || i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                                React.createElement("td", { style: { padding: "12px 16px", fontWeight: 700, fontFamily: "monospace", fontSize: 10, color: C.blue } }, r.id.substring(0, 10) + "…"),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray, fontWeight: 600 } }, r.userDisplayName || r.userEmail || "Sistema"),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray } }, reportDate),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, fontWeight: 600 } }, r.turnoLabel),
-                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen?.totalContestadas || 0),
-                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen?.totalAbandonadas || 0),
-                                React.createElement("td", { style: { padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" } },
-                                    React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.mid, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Ver"),
-                                    canDelete(r) && React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: "transparent", color: C.red, border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, cursor: "pointer" } }, "✕")
-                                )
-                            );
-                        })
-                    )
-                )
-            )
-        )
-    );
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: MENSUAL (Enhanced — Filters, Charts, Turno)
