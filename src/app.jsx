@@ -2376,7 +2376,7 @@ if (selectedDate) {
                                 React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
                                     React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
                                     React.createElement("div", { style: { fontSize: 11, color: C.gray } }, 
-                                        `${selectedReport.datos?.agentes?.data?.length || selectedReport.datos?.agentes?.agents?.length || 0} operadores • por ${r.createdBy || r.userName || "Usuario"}`
+                                        `${r.datos?.agentes?.data?.length || r.datos?.agentes?.agents?.length || 0} operadores • por ${r.createdBy || r.userName || "Usuario"}`
                                     )
                                 )
                             ),
