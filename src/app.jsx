@@ -99,6 +99,17 @@ function parseLines(raw) {
     return raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 }
 
+const normalizeName = (name) => {
+    if (!name) return "";
+    return name
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/,/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+};
+
 function parseAgentes(raw) {
     const lines = parseLines(raw);
     const agents = [];
@@ -806,8 +817,11 @@ async function updateStaffField(normName, field, value) {
     if (!db || !normName) return;
     const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     
-    // Guardar en documento principal
-    await setDoc(doc(db, "staff", normName), { [field]: value }, { merge: true });
+    // Guardar en documento principal asegurando que normName esté presente
+    await setDoc(doc(db, "staff", normName), { 
+        [field]: value,
+        normName: normName 
+    }, { merge: true });
     
     // Registrar en historial
     await addDoc(collection(db, "staff_history"), {
@@ -864,7 +878,10 @@ async function getStaffList() {
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const snap = await getDocs(collection(db, "staff"));
-    return snap.docs.map(d => d.data());
+    return snap.docs.map(d => ({
+        normName: d.id, // Asegurar que siempre tenga el ID como normName
+        ...d.data()
+    }));
 }
 
 async function getOperatorPerformance(month, year) {
