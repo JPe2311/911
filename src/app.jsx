@@ -2030,9 +2030,9 @@ function ViewDespacho({ data }) {
             subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
             dataset: dpI,
         })
-
     );
 }
+
 
 function DistritoRow({ d, maxSec, rank, variant }) {
     const pct = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
@@ -2129,31 +2129,36 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         setDeleting(null);
     };
 
-    // Helper: get the SHIFT date (not upload date) for a report
-    // Prioritizes turno.fecha (from CSV metadata) over fechaGuardado (Firestore upload time)
+    // Multi-format date parser (handles all CSV date formats)
+    const MESES_ES = { enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,
+        julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12 };
+    const parseAnyDate = (str) => {
+        if (!str || typeof str !== "string" || !str.trim()) return null;
+        str = str.trim();
+        // dd/mm/yyyy or dd-mm-yyyy
+        let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+        // yyyy-mm-dd (ISO)
+        m = str.match(/^(\d{4})[\-](\d{2})[\-](\d{2})/);
+        if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+        // "29 de abril de 2026" (Spanish text)
+        const lower = str.toLowerCase();
+        m = lower.match(/(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/);
+        if (m && MESES_ES[m[2]]) return new Date(parseInt(m[3]), MESES_ES[m[2]] - 1, parseInt(m[1]));
+        // "abril 2026" (month name + year)
+        m = lower.match(/([a-z]+)\s+(\d{4})/);
+        if (m && MESES_ES[m[1]]) return new Date(parseInt(m[2]), MESES_ES[m[1]] - 1, 1);
+        return null;
+    };
+
+    // Get SHIFT date: turno.fecha (CSV) → turnoLabel → fechaGuardado (last resort)
     const getReportDate = (r) => {
-        // 1️⃣ turno.fecha: "dd/mm/yyyy" — the actual shift date from the CSV
-        if (r.turno?.fecha) {
-            const parts = r.turno.fecha.split(/[\/\-]/);
-            if (parts.length === 3) {
-                const isYMD = parts[0].length === 4; // yyyy-mm-dd format
-                const y = isYMD ? parseInt(parts[0]) : parseInt(parts[2]);
-                const m = parseInt(parts[1]);
-                const d = isYMD ? parseInt(parts[2]) : parseInt(parts[0]);
-                if (y > 2000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                    return new Date(y, m - 1, d);
-                }
-            }
+        const d1 = parseAnyDate(r.turno?.fecha);
+        if (d1 && !isNaN(d1)) return d1;
+        if (r.turnoLabel && r.turnoLabel !== "Sin identificar") {
+            const d2 = parseAnyDate(r.turnoLabel.split(" ")[0]);
+            if (d2 && !isNaN(d2)) return d2;
         }
-        // 2️⃣ turnoLabel: "dd/mm/yyyy HH:MM → HH:MM" — extract date from label
-        if (r.turnoLabel) {
-            const m = r.turnoLabel.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-            if (m) {
-                const [, d, mo, y] = m;
-                return new Date(parseInt(y), parseInt(mo) - 1, parseInt(d));
-            }
-        }
-        // 3️⃣ fechaGuardado: ISO upload timestamp — last resort
         if (r.fechaGuardado) return new Date(r.fechaGuardado);
         return null;
     };
