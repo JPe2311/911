@@ -123,13 +123,15 @@ function parseAgentes(raw) {
         if (!cols.length || cols.length < 2) continue;
         const first = (cols[0] || "").trim();
 
-        if (first === "Fecha del informe:" && cols[1]) {
-            meta.fecha = cols[1];
+        if (first.includes("Fecha del informe") && cols[1]) {
+            meta.fecha = cols[1].trim();
             continue;
         }
-        if (first === "Rango del informe:" && cols[1]) {
-            meta.fechaDesde = cols[1]; meta.fechaHasta = cols[2];
-            meta.horaDesde = cols[3]; meta.horaHasta = cols[4];
+        if (first.includes("Rango del informe") || cols.some(c => c && c.includes("Rango del informe"))) {
+            // Buscar la fecha en las columnas siguientes si no está en la 1 o 2
+            const dateStr = cols.find(c => /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(c));
+            if (dateStr) meta.fechaDesde = dateStr.trim();
+            else { meta.fechaDesde = cols[1]?.trim(); meta.fechaHasta = cols[2]?.trim(); }
             continue;
         }
 
@@ -2094,14 +2096,17 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         let cancelled = false;
         setLoading(true);
         if (isFirebase) {
-            // Load ALL reports — client-side filtering handles month/year
             loadReportsFromFirestore(null).then(reports => {
-                if (!cancelled) { setHistory(reports); setLoading(false); }
-            }).catch(() => {
+                if (!cancelled) { 
+                    console.log("📊 Historial cargado:", reports.length, "reportes");
+                    setHistory(reports); 
+                    setLoading(false); 
+                }
+            }).catch(err => {
+                console.error("❌ Error cargando historial:", err);
                 if (!cancelled) setLoading(false);
             });
         } else {
-            // Fallback: read from localStorage
             try {
                 const stored = JSON.parse(localStorage.getItem("sae911_reports") || "[]");
                 setHistory(stored.slice().reverse());
@@ -2164,14 +2169,25 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         return null;
     };
 
-    // Get SHIFT date: turno.fecha (CSV) → turnoLabel → fechaGuardado (last resort)
+    // Helper: get the SHIFT date (not upload date) for a report
     const getReportDate = (r) => {
+        // 1. Try turno.fecha
         const d1 = parseAnyDate(r.turno?.fecha);
-        if (d1 && !isNaN(d1)) return d1;
+        if (d1 && !isNaN(d1.getTime())) return d1;
+        
+        // 2. Try extraction from turnoLabel
         if (r.turnoLabel && r.turnoLabel !== "Sin identificar") {
             const d2 = parseAnyDate(r.turnoLabel.split(" ")[0]);
-            if (d2 && !isNaN(d2)) return d2;
+            if (d2 && !isNaN(d2.getTime())) return d2;
         }
+
+        // 3. Last resort: scan the whole object for anything that looks like a date
+        // (This helps with legacy or malformed reports)
+        const scan = JSON.stringify(r);
+        const m = scan.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+
+        // 4. Fallback to upload date
         if (r.fechaGuardado) return new Date(r.fechaGuardado);
         return null;
     };
@@ -2181,7 +2197,16 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         if (!d || isNaN(d.getTime())) return false;
         const rMonth = (d.getMonth() + 1).toString().padStart(2, "0");
         const rYear = d.getFullYear().toString();
-        return rMonth === filterMonth && rYear === filterYear;
+        
+        const targetM = filterMonth.trim();
+        const targetY = filterYear.trim();
+        
+        // Log para depuración (puedes verlo en F12)
+        if (rMonth === targetM && rYear === targetY) {
+            // Coincide
+        }
+        
+        return rMonth === targetM && rYear === targetY;
     });
 
     const calendarData = useMemo(() => {
@@ -2252,7 +2277,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     ),
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Fecha"),
-                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.id?.substring(0, 10))
+                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.turno?.fecha || "S/D")
                     ),
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Llamadas"),
@@ -2359,7 +2384,9 @@ if (selectedDate) {
             React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
             React.createElement("div", null,
                 React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📅 Historial de Reportes"),
-                React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Selecciona un día para ver los turnos")
+                React.createElement("div", { style: { color: C.gray, fontSize: 11, marginTop: 4, background: "#e2e8f0", padding: "2px 8px", borderRadius: 4, display: "inline-block" } }, 
+                    `Total en base: ${history.length} | Filtrados: ${filteredReports.length}`
+                )
             )
         ),
         React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
