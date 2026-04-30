@@ -4412,24 +4412,49 @@ function ViewGestorPersonal({ user, onBack }) {
 
     const loadStaff = async () => {
         setLoading(true);
-        const [registered, performance, tList, aList] = await Promise.all([
-            getStaffList(),
-            getUniqueOperators(),
-            getConfigTurnos(),
-            getConfigAreas()
-        ]);
+        try {
+            const [registered, performance, tList, aList] = await Promise.all([
+                getStaffList(),
+                getUniqueOperators(),
+                getConfigTurnos(),
+                getConfigAreas()
+            ]);
 
-        setTurnos(tList);
-        setAreas(aList);
+            setTurnos(tList);
+            setAreas(aList);
 
-        const masterList = [...registered];
-        performance.forEach(op => {
-            if (!masterList.find(s => s.normName === op.normName)) {
-                masterList.push({ ...op, turno: "—", area: "—" });
-            }
-        });
+            // Usar un Map con nombres normalizados para evitar duplicados y discrepancias
+            const masterMap = new Map();
 
-        setStaff(masterList.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            // 1. Cargar personal ya registrado
+            registered.forEach(s => {
+                const id = normalizeName(s.normName || s.name);
+                if (id) masterMap.set(id, { ...s, normName: id });
+            });
+
+            // 2. Cargar operadores con desempeño que NO estén en personal
+            performance.forEach(op => {
+                const id = normalizeName(op.normName || op.name);
+                if (id && !masterMap.has(id)) {
+                    masterMap.set(id, { 
+                        ...op, 
+                        normName: id,
+                        turno: "—", 
+                        area: "—" 
+                    });
+                } else if (id && masterMap.has(id)) {
+                    // Si ya existe, nos aseguramos de que el nombre sea el más legible
+                    const existing = masterMap.get(id);
+                    if (!existing.name && op.name) {
+                        masterMap.set(id, { ...existing, name: op.name });
+                    }
+                }
+            });
+
+            setStaff(Array.from(masterMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+        } catch (e) {
+            console.error("Error loading staff grid:", e);
+        }
         setLoading(false);
     };
 
