@@ -3798,25 +3798,28 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
 
     const loadData = async () => {
         setLoading(true);
-        const [pList, staff] = await Promise.all([
-            getOperatorPerformance(filter.month, filter.year),
-            getStaffList()
-        ]);
-        setPerf(pList);
-        const map = {};
-        for (const s of staff) {
-            const ta = await getStaffTurnoArea(s.normName, filter.month, parseInt(filter.year));
-            map[s.normName] = { 
-                ...s, 
-                turno: ta.turno || s.turno || "",
-                area: ta.area || s.area || ""
-            };
+        try {
+            const [pList, staff, tList, aList] = await Promise.all([
+                getOperatorPerformance(filter.month, filter.year),
+                getStaffList(),
+                getConfigTurnos(),
+                getConfigAreas()
+            ]);
+            
+            setPerf(pList);
+            setAvailableGroups(tList);
+            setAvailableAreas(aList);
+
+            // Mapa con llaves normalizadas para un cruce perfecto
+            const map = {};
+            staff.forEach(s => {
+                const id = normalizeName(s.normName || s.name);
+                if (id) map[id] = s;
+            });
+            setStaffMap(map);
+        } catch (e) {
+            console.error("Error en Ranking Detallado:", e);
         }
-        setStaffMap(map);
-        const groups = [...new Set(Object.values(map).map(s => s.turno).filter(Boolean))].sort();
-        const areas = [...new Set(Object.values(map).map(s => s.area).filter(Boolean))].sort();
-        setAvailableGroups(groups);
-        setAvailableAreas(areas);
         setLoading(false);
     };
 
@@ -3860,12 +3863,14 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
 
     const combined = useMemo(() => {
         return perf.map(p => {
+            const id = normalizeName(p.normName);
+            const s = staffMap[id] || {};
             const hours = (p.totalConectado / 3600) || 1;
             const coefProd = p.c / hours;
             return {
                 ...p,
-                turno: staffMap[p.normName]?.turno || "",
-                area: staffMap[p.normName]?.area || "",
+                turno: s.turno || "—",
+                area: s.area || "—",
                 coefProd: coefProd.toFixed(1),
                 scoreQuality: (p.pctProd).toFixed(1),
             };
