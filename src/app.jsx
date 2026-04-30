@@ -633,16 +633,20 @@ async function loadReportsFromFirestore(year = null) {
     const db = getDB();
     if (!db) return [];
     try {
-        const { collection, query, orderBy, getDocs, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
+        const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const yearNum = year ? parseInt(year) : null;
         let q = query(
             collection(db, "informes"),
             orderBy("fechaGuardado", "desc")
         );
         const snap = await getDocs(q);
         return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() })).filter(r => {
-            const reportYear = r.meta?.year || parseInt(r.id?.substring(6, 10));
-            return reportYear === yearNum;
+            if (!yearNum) return true;
+            // Derivar el año desde fechaGuardado (ISO string) o desde turno.fecha
+            const savedYear = r.fechaGuardado
+                ? new Date(r.fechaGuardado).getFullYear()
+                : (r.turno?.fecha ? parseInt(r.turno.fecha.slice(-4)) : null);
+            return savedYear === yearNum;
         });
     } catch (e) {
         console.error("✗ Error cargando reportes:", e);
@@ -2090,15 +2094,22 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         let cancelled = false;
         setLoading(true);
         if (isFirebase) {
-            loadReportsFromFirestore(filterYear).then(reports => {
+            // Load ALL reports — client-side filtering handles month/year
+            loadReportsFromFirestore(null).then(reports => {
                 if (!cancelled) { setHistory(reports); setLoading(false); }
+            }).catch(() => {
+                if (!cancelled) setLoading(false);
             });
         } else {
-            setHistory(getLocalHistory().slice().reverse());
+            // Fallback: read from localStorage
+            try {
+                const stored = JSON.parse(localStorage.getItem("sae911_reports") || "[]");
+                setHistory(stored.slice().reverse());
+            } catch (_) { setHistory([]); }
             setLoading(false);
         }
         return () => { cancelled = true; };
-    }, [user, filterYear]);
+    }, [user]);
 
     const handleDelete = async (report) => {
         if (isFirebase && report.uid !== user?.uid) return;
@@ -2148,7 +2159,9 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         ),
         React.createElement("div", { style: { fontSize: 28, marginBottom: 10 } }, "📋"),
         React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 6 } }, "Sin reportes guardados"),
-        React.createElement("div", { style: { fontSize: 13 } }, isFirebase ? "Los reportes que generes se guardarán automáticamente en Firestore." : "Los reportes se guardan localmente en este navegador.")
+        React.createElement("div", { style: { fontSize: 13 } }, isFirebase
+            ? "Generá un informe cargando los 5 archivos CSV — se guardará automáticamente."
+            : "Los reportes se guardan localmente en este navegador.")
     );
 
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
