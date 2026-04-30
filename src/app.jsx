@@ -2144,22 +2144,22 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         if (!str || typeof str !== "string" || !str.trim()) return null;
         const clean = str.trim().toLowerCase().replace(/,/g, "");
         
-        // 1. dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy
-        let m = clean.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+        // 1. dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy (No anchors!)
+        let m = clean.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
         if (m) {
             let y = parseInt(m[3]);
-            if (y < 100) y += 2000; // Handle 24, 25, 26...
+            if (y < 100) y += 2000;
             return new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
         }
 
         // 2. yyyy-mm-dd (ISO-ish)
-        m = clean.match(/^(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})/);
+        m = clean.match(/(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})/);
         if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
 
         // 3. "29 de abril de 2026" or "15 abr 2026"
         m = clean.match(/(\d{1,2})\s+(?:de\s+)?([a-z\u00e1\u00e9\u00ed\u00f3\u00fa]{3,})\s+(?:de\s+)?(\d{2,4})/);
         if (m) {
-            const monthName = m[2].substring(0, 3); // Take first 3 chars
+            const monthName = m[2].substring(0, 3);
             if (MESES_ES[monthName]) {
                 let y = parseInt(m[3]);
                 if (y < 100) y += 2000;
@@ -2172,22 +2172,31 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
     // Helper: get the SHIFT date (not upload date) for a report
     const getReportDate = (r) => {
         // 1. Try turno.fecha
-        const d1 = parseAnyDate(r.turno?.fecha);
-        if (d1 && !isNaN(d1.getTime())) return d1;
+        let d = parseAnyDate(r.turno?.fecha);
+        if (d && !isNaN(d.getTime())) return d;
         
         // 2. Try extraction from turnoLabel
         if (r.turnoLabel && r.turnoLabel !== "Sin identificar") {
-            const d2 = parseAnyDate(r.turnoLabel.split(" ")[0]);
-            if (d2 && !isNaN(d2.getTime())) return d2;
+            d = parseAnyDate(r.turnoLabel);
+            if (d && !isNaN(d.getTime())) return d;
         }
 
-        // 3. Last resort: scan the whole object for anything that looks like a date
-        // (This helps with legacy or malformed reports)
-        const scan = JSON.stringify(r);
-        const m = scan.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-        if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+        // 3. Scan the raw data for ANY date or Spanish month
+        const raw = JSON.stringify(r).toLowerCase();
+        // Look for dd/mm/yyyy
+        const m1 = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m1) return new Date(parseInt(m1[3]), parseInt(m1[2]) - 1, parseInt(m1[1]));
+        
+        // Look for "febrero", "marzo", etc.
+        for (const [name, num] of Object.entries(MESES_ES)) {
+            if (name.length > 3 && raw.includes(name)) {
+                const yearMatch = raw.match(/\d{4}/);
+                const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+                return new Date(year, num - 1, 1);
+            }
+        }
 
-        // 4. Fallback to upload date
+        // 4. Fallback
         if (r.fechaGuardado) return new Date(r.fechaGuardado);
         return null;
     };
