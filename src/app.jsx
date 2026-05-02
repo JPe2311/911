@@ -2521,6 +2521,30 @@ function ViewMensual({ user, onBack }) {
         try {
             const text = await file.text();
             const lines = parseLines(text);
+            
+            // Detectar delimitador de las primeras líneas
+            let delimiter = ";";
+            for (let i = 0; i < Math.min(5, lines.length); i++) {
+                if (lines[i].includes(";")) { delimiter = ";"; break; }
+                if (lines[i].includes(",")) { delimiter = ","; break; }
+                if (lines[i].includes("\t")) { delimiter = "\t"; break; }
+            }
+            
+            const parseRow = (line) => {
+                if (delimiter === "\t") return line.split("\t").map(s => s.trim());
+                if (delimiter === ";") return parseSemicolon(line);
+                const cols = [];
+                let cur = "", inQ = false;
+                for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (c === '"') { inQ = !inQ; continue; }
+                    if (c === delimiter && !inQ) { cols.push(cur.trim()); cur = ""; }
+                    else cur += c;
+                }
+                cols.push(cur.trim());
+                return cols;
+            };
+
             let totalOfrecidas = 0, totalContestadas = 0, totalAbandonadas = 0;
             const dailyData = {};
             const hourlyData = [];
@@ -2531,7 +2555,7 @@ function ViewMensual({ user, onBack }) {
             let isNewFormat = false;
 
             lines.forEach((line) => {
-                const cols = parseSemicolon(line);
+                const cols = parseRow(line);
                 if (cols.length < 3) return;
 
                 // Detect header
@@ -2546,7 +2570,7 @@ function ViewMensual({ user, onBack }) {
                             if (h.includes("intervalo")) colIdx.intervalo = i;
                             if (h === "abandonadas") colIdx.abandonadas = i;
                             if (h === "ofrecidas" || (h.includes("ofrec") && !h.includes("abandon"))) colIdx.ofrecidas = i;
-                            if (h.includes("abandonadas contestadas") || h.includes("abandon") && h.includes("contest")) colIdx.contestadas = i;
+                            if (h === "contestadas" || h.includes("abandonadas contestadas") || (h.includes("abandon") && h.includes("contest"))) colIdx.contestadas = i;
                             if (h.includes("en cola") || h.includes("cola")) colIdx.enCola = i;
                             if (h.includes("abandonadas avisando") || (h.includes("abandon") && h.includes("avisan"))) colIdx.avisandoAb = i;
                             if (h === "avisando") colIdx.avisando = i;
@@ -2587,15 +2611,19 @@ function ViewMensual({ user, onBack }) {
 
                 if (!ofrec && !contest && !aband) return;
 
-                // Parse date (d/m/yyyy)
-                const dateParts = fechaRaw.split(/[\/-]/);
+                // Parse date (d/m/yyyy, m/d/yyyy, yyyy-m-d)
+                const dateParts = fechaRaw.split(/[\/-]/).map(p => parseInt(p, 10));
                 let dayNum = 0;
-                if (dateParts.length >= 2) {
-                    const p0 = parseInt(dateParts[0]);
-                    const p1 = parseInt(dateParts[1]);
-                    if (p1 === monthNum) dayNum = p0;
-                    else if (p0 === monthNum) dayNum = p1;
-                    else dayNum = p0;
+                if (dateParts.length >= 3) {
+                    if (dateParts[0] > 31) {
+                        dayNum = dateParts[1] === monthNum ? dateParts[2] : dateParts[1];
+                    } else if (dateParts[2] > 31) {
+                        dayNum = dateParts[1] === monthNum ? dateParts[0] : dateParts[1];
+                    } else {
+                        dayNum = dateParts[0]; // Fallback
+                    }
+                } else if (dateParts.length === 2) {
+                    dayNum = dateParts[1] === monthNum ? dateParts[0] : dateParts[1];
                 }
 
                 // Parse hour from intervalo "HH:MM - HH:MM" or simple hour
