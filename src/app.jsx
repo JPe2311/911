@@ -2488,6 +2488,7 @@ function ViewMensual({ user, onBack }) {
     const [filterYear, setFilterYear] = useState("all");
     const [filterMonth, setFilterMonth] = useState("all");
     const [filterTurno, setFilterTurno] = useState("all"); // "all" | "dia" | "noche"
+    const [viewMode, setViewMode] = useState("mensual"); // "mensual" | "trimestral" | "anual"
     const [selectedMonths, setSelectedMonths] = useState([]);
 
 
@@ -2698,7 +2699,11 @@ function ViewMensual({ user, onBack }) {
     // ──── KPI aggregate ──────────────────────────────────────────────────────
     const kpis = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         let tO = 0, tC = 0, tA = 0, tEC = 0, tAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
         target.forEach(h => {
@@ -2725,55 +2730,93 @@ function ViewMensual({ user, onBack }) {
         const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
         const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
         return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, totalManejo: mSum, totalAvisando: avSum, count: target.length };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
-    // ──── Monthly Comparison KPIs (per-month with deltas) ────────────────────
+    // ──── Period Comparison KPIs (per-month/quarter/year with deltas) ────────
     const monthlyCompData = useMemo(() => {
         if (filteredHistory.length === 0) return null;
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (target.length === 0) return null;
 
-        const sorted = [...target].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
-
-        const monthStats = sorted.map(h => {
-            if (!h) return null;
-            const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
-            if (rows && rows.length) {
-                rows.forEach(r => {
-                    if (!r) return;
-                    rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
-                    rEC += r.ec || 0; rAV += r.av || 0;
-                    if (r.manejo) { mSum += r.manejo; mCnt++; }
-                    if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
-                });
-            } else if (h.resumen) {
-                rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
+        // Grouping
+        const groups = {};
+        target.forEach(h => {
+            if (!h) return;
+            const q = Math.ceil(h.meta.monthNum / 3);
+            let pId, label, sortKey;
+            if (viewMode === "mensual") {
+                pId = h.firestoreId;
+                label = h.meta.label;
+                sortKey = h.meta.year * 100 + h.meta.monthNum;
+            } else if (viewMode === "trimestral") {
+                pId = `Q${q}-${h.meta.year}`;
+                label = `Q${q} ${h.meta.year}`;
+                sortKey = h.meta.year * 10 + q;
+            } else {
+                pId = `Y${h.meta.year}`;
+                label = `Año ${h.meta.year}`;
+                sortKey = h.meta.year;
             }
+            
+            if (!groups[pId]) {
+                groups[pId] = { pId, label, sortKey, items: [] };
+            }
+            groups[pId].items.push(h);
+        });
+
+        const sortedGroups = Object.values(groups).sort((a, b) => a.sortKey - b.sortKey);
+
+        const periodStats = sortedGroups.map(g => {
+            let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
+            let totalUniqueDays = 0;
+
+            g.items.forEach(h => {
+                const rows = filterDetailsByTurno(h.detalles, filterTurno);
+                if (rows && rows.length) {
+                    rows.forEach(r => {
+                        if (!r) return;
+                        rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
+                        rEC += r.ec || 0; rAV += r.av || 0;
+                        if (r.manejo) { mSum += r.manejo; mCnt++; }
+                        if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
+                    });
+                    totalUniqueDays += new Set(rows.map(r => r.d)).size;
+                } else if (h.resumen) {
+                    rO += h.resumen.totalOfrecidas || 0; 
+                    rC += h.resumen.totalContestadas || 0; 
+                    rA += h.resumen.totalAbandonadas || 0;
+                    totalUniqueDays += 30; // fallback if no details
+                }
+            });
+
             const pctAb = rO ? (rA / rO * 100) : 0;
             const pctAt = rO ? (rC / rO * 100) : 0;
             const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
             const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
-            const uniqueDays = rows && rows.length ? new Set(rows.map(r => r.d)).size : 1;
-            const promDiario = uniqueDays ? Math.round(rO / uniqueDays) : 0;
-            const promAbandDiario = uniqueDays ? Math.round(rA / uniqueDays) : 0;
+            const promDiario = totalUniqueDays ? Math.round(rO / totalUniqueDays) : 0;
+            const promAbandDiario = totalUniqueDays ? Math.round(rA / totalUniqueDays) : 0;
+
             return {
-                label: h.meta.label, monthNum: h.meta.monthNum, year: h.meta.year,
-                firestoreId: h.firestoreId,
+                label: g.label, firestoreId: g.pId,
                 ofrecidas: rO, contestadas: rC, abandonadas: rA,
                 enCola: rEC, avisando: rAV,
                 pctAb, pctAt, avgManejo, avgAvisando,
                 totalManejo: mSum, totalAvisando: avSum,
-                promDiario, promAbandDiario, uniqueDays
+                promDiario, promAbandDiario, uniqueDays: totalUniqueDays,
+                items: g.items
             };
         });
 
-        // Calculate deltas (vs previous month)
-        const withDeltas = monthStats.map((cur, i) => {
+        // Calculate deltas (vs previous period)
+        const withDeltas = periodStats.map((cur, i) => {
             if (i === 0) return { ...cur, deltas: null };
-            const prev = monthStats[i - 1];
+            const prev = periodStats[i - 1];
             const delta = (curVal, prevVal) => prevVal !== 0 ? ((curVal - prevVal) / prevVal * 100) : (curVal > 0 ? 100 : 0);
             return {
                 ...cur,
@@ -2781,7 +2824,7 @@ function ViewMensual({ user, onBack }) {
                     ofrecidas: delta(cur.ofrecidas, prev.ofrecidas),
                     contestadas: delta(cur.contestadas, prev.contestadas),
                     abandonadas: delta(cur.abandonadas, prev.abandonadas),
-                    pctAb: cur.pctAb - prev.pctAb,  // Simple difference for percentage points
+                    pctAb: cur.pctAb - prev.pctAb,
                     pctAt: cur.pctAt - prev.pctAt,
                     avgManejo: cur.avgManejo - prev.avgManejo,
                     totalManejo: delta(cur.totalManejo, prev.totalManejo),
@@ -2791,40 +2834,44 @@ function ViewMensual({ user, onBack }) {
         });
 
         return withDeltas;
-
-        return withDeltas;
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Comparison bar ──────────────────────────────────────────────
     const compChart = useMemo(() => {
-        if (filteredHistory.length === 0) return null;
-        const data = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
-            : filteredHistory;
-        if (data.length === 0) return null;
-        const sorted = [...data].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
+        if (!monthlyCompData || monthlyCompData.length === 0) return null;
         return {
-            labels: sorted.map(s => s.meta?.label || "—"),
+            labels: monthlyCompData.map(s => s.label || "—"),
             datasets: [
-                { label: "Ofrecidas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.o || 0), 0) : (s.resumen?.totalOfrecidas || 0); }), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
-                { label: "Contestadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.c || 0), 0) : (s.resumen?.totalContestadas || 0); }), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
-                { label: "Abandonadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.ab || 0), 0) : (s.resumen?.totalAbandonadas || 0); }), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
+                { label: "Ofrecidas", data: monthlyCompData.map(s => s.ofrecidas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
+                { label: "Contestadas", data: monthlyCompData.map(s => s.contestadas), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
+                { label: "Abandonadas", data: monthlyCompData.map(s => s.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [monthlyCompData]);
 
     // ──── Chart: Daily trend (single month) ──────────────────────────────────
     const dailyChart = useMemo(() => {
-        const single = selectedMonths.length === 1
-            ? history.find(h => h.firestoreId === selectedMonths[0])
-            : (filteredHistory.length === 1 ? filteredHistory[0] : null);
-        if (!single || !single.detalles) return null;
-        const rows = filterDetailsByTurno(single.detalles, filterTurno);
+        const target = selectedMonths.length > 0
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
+            : filteredHistory;
+        if (!target.length) return null;
+        const single = target[0]; // If multiple months are grouped, this chart will aggregate all days 1..31 across them
+        // Actually, let's aggregate ALL targets so if Q1 is selected, day 1 is sum of Jan 1 + Feb 1 + Mar 1.
+        // Wait, if it's just "single month" trend, let's use all targets.
+        // The previous code used `selectedMonths.length === 1 ? ...`. We will now map over all elements in `target`.
         const byDay = {};
-        rows.forEach(r => {
-            if (!r || r.d === undefined) return;
-            if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
-            byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
+        target.forEach(h => {
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
+            if (!rows) return;
+            rows.forEach(r => {
+                if (!r || r.d === undefined) return;
+                if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
+                byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
+            });
         });
         const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
         return {
@@ -2835,12 +2882,16 @@ function ViewMensual({ user, onBack }) {
                 { label: "Abandonadas", data: days.map(d => byDay[d].ab), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.06)", fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: C.red, borderWidth: 2 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Hourly distribution ─────────────────────────────────────────
     const hourlyChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (!target.length) return null;
         const byHour = {};
@@ -2868,12 +2919,16 @@ function ViewMensual({ user, onBack }) {
                 { label: "Prom. Abandonadas/día", data: hours.map(h => Math.round(byHour[h].ab / divisor)), backgroundColor: "rgba(220,38,38,0.6)", borderRadius: 5 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Day of Week distribution ────────────────────────────────────
     const weekDayChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (!target.length) return null;
 
@@ -3023,6 +3078,25 @@ function ViewMensual({ user, onBack }) {
         history.length > 0 && React.createElement(Card, { style: { marginBottom: 20, padding: "16px 24px" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" } },
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, display: "flex", alignItems: "center", gap: 6 } }, "🔍 Filtros"),
+                // Agrupacion
+                React.createElement("div", { style: { display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 3 } },
+                    [
+                        { id: "mensual", label: "Mensual", icon: "🗓️" },
+                        { id: "trimestral", label: "Trimestral", icon: "📊" },
+                        { id: "anual", label: "Anual", icon: "📅" }
+                    ].map(t => React.createElement("button", {
+                        key: t.id,
+                        onClick: () => { setViewMode(t.id); setSelectedMonths([]); },
+                        style: {
+                            padding: "6px 14px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                            background: viewMode === t.id ? "#fff" : "transparent",
+                            color: viewMode === t.id ? C.blue : C.gray,
+                            boxShadow: viewMode === t.id ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+                            transition: "all .15s",
+                            display: "flex", alignItems: "center", gap: 4
+                        }
+                    }, t.icon, " ", t.label))
+                ),
                 // Year filter
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
                     React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1 } }, "Año"),
@@ -3081,12 +3155,12 @@ function ViewMensual({ user, onBack }) {
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontWeight: 900, fontSize: 17, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
-                        "📐 Comparativa Numérica Mensual"
+                        "📐 Comparativa Numérica"
                     ),
                     React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 3 } },
                         monthlyCompData.length > 1
-                            ? "Variación mes a mes — flechas verdes indican mejora, rojas indican deterioro"
-                            : "Métricas del mes seleccionado"
+                            ? "Variación período a período — flechas verdes indican mejora, rojas indican deterioro"
+                            : "Métricas del período seleccionado"
                     )
                 ),
                 monthlyCompData.length > 1 && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
@@ -3166,11 +3240,11 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
-                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
+                            ["Período", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
                                 React.createElement("th", {
                                     key: h + Math.random(), style: {
                                         padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
-                                        fontSize: h === "Mes" ? 11 : 10, whiteSpace: "nowrap",
+                                        fontSize: h === "Período" ? 11 : 10, whiteSpace: "nowrap",
                                         borderRight: ["Δ", "Δ pp"].includes(h) ? "2px solid rgba(255,255,255,0.1)" : "none"
                                     }
                                 }, h)
@@ -3269,7 +3343,7 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 } },
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontWeight: 900, fontSize: 14, color: C.navy } }, "📊 Ranking de Desempeño (Abandono)"),
-                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por mes")
+                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por período")
                     ),
                     (() => {
                         const avgAb = (monthlyCompData.reduce((s, m) => s + m.pctAb, 0) / monthlyCompData.length).toFixed(1);
@@ -3289,7 +3363,7 @@ function ViewMensual({ user, onBack }) {
                             const bgAlpha = m.pctAb > 25 ? "rgba(220,38,38,0.1)" : m.pctAb > 15 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)";
 
                             return React.createElement("div", { key: m.firestoreId, style: { display: "grid", gridTemplateColumns: "140px 1fr 100px", alignItems: "center", gap: 15, padding: "8px 12px", borderRadius: 10, background: i === 0 && m.pctAb > 25 ? "rgba(220,38,38,0.03)" : "transparent" } },
-                                // Month Label
+                                // Period Label
                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
                                     React.createElement("span", { style: { width: 18, height: 18, borderRadius: 5, background: i === 0 ? C.navy : "#e2e8f0", color: i === 0 ? "#fff" : C.gray, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" } }, i + 1),
                                     m.label
@@ -3313,48 +3387,33 @@ function ViewMensual({ user, onBack }) {
             )
         ),
 
-        // ── PER-MONTH KPI CARDS (general → particular) ────────────────────────
-        filteredHistory.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
+        // ── PER-PERIOD KPI CARDS (general → particular) ────────────────────────
+        monthlyCompData && monthlyCompData.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 } },
-                "📅 KPIs por Mes",
-                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${filteredHistory.length} ${filteredHistory.length === 1 ? "mes" : "meses"}`)
+                "📅 KPIs por Período",
+                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${monthlyCompData.length} ${monthlyCompData.length === 1 ? "período" : "períodos"}`)
             ),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 } },
                 (() => {
-                    // Compute max ofrecidas across visible months for relative bar sizing
-                    const allRO = filteredHistory.map(h => {
-                        if (!h) return 0;
-                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                        return rows && rows.length ? rows.reduce((s, r) => s + (r?.o || 0), 0) : (h.resumen?.totalOfrecidas || 0);
-                    });
-                    const maxRO = Math.max(...allRO, 1);
+                    const maxRO = Math.max(...monthlyCompData.map(m => m.ofrecidas), 1);
 
-                    return filteredHistory.map((h, i) => {
-                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                        let rO, rC, rA, rEC, rAV, rM;
-                        if (rows && rows.length) {
-                            rO = rows.reduce((s, r) => s + (r?.o || 0), 0);
-                            rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
-                            rA = rows.reduce((s, r) => s + (r?.ab || 0), 0);
-                            rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
-                            rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
-                            const mRows = rows.filter(r => r && r.manejo);
-                            rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
-                        } else if (h.resumen) {
-                            rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
-                            rEC = 0; rAV = 0; rM = 0;
-                        } else {
-                            rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
-                        }
-                        const pctAt = rO ? (rC / rO * 100) : 0;
-                        const pctAb = rO ? (rA / rO * 100) : 0;
-                        const isSel = selectedMonths.includes(h.firestoreId);
+                    return monthlyCompData.map((m, i) => {
+                        const rO = m.ofrecidas;
+                        const rC = m.contestadas;
+                        const rA = m.abandonadas;
+                        const rEC = m.enCola;
+                        const rAV = m.avisando;
+                        const rM = m.avgManejo;
+
+                        const pctAt = m.pctAt;
+                        const pctAb = m.pctAb;
+                        const isSel = selectedMonths.includes(m.firestoreId);
                         const atColor = pctAt >= 85 ? C.green : pctAt >= 70 ? C.yellow : C.red;
                         const abColor = pctAb > 25 ? C.red : pctAb > 15 ? C.orange : C.green;
 
                         return React.createElement("div", {
-                            key: h.firestoreId,
-                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]),
+                            key: m.firestoreId,
+                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== m.firestoreId) : [...s, m.firestoreId]),
                             style: {
                                 background: "#fff", borderRadius: 12, padding: "18px 20px",
                                 border: `2px solid ${isSel ? C.blue : C.border}`,
@@ -3368,8 +3427,8 @@ function ViewMensual({ user, onBack }) {
                             // Header row
                             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, marginTop: 4 } },
                                 React.createElement("div", null,
-                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, h.meta.label),
-                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${h.meta.year} — ${MONTH_NAMES[h.meta.monthNum] || ""}`)
+                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, m.label),
+                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${m.items.length} ${m.items.length === 1 ? 'mes agrupado' : 'meses agrupados'}`)
                                 ),
                                 isSel && React.createElement("div", { style: { background: C.light, color: C.blue, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 700 } }, "✓ Seleccionado")
                             ),
