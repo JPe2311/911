@@ -3768,12 +3768,12 @@ function ViewComparativaGrupos({ user, onBack }) {
                     availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
                 ),
                 React.createElement("select", {
-                    value: groupFilter,
-                    onChange: e => setGroupFilter(e.target.value),
+                    value: areaFilter,
+                    onChange: e => setAreaFilter(e.target.value),
                     style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
                 },
                     React.createElement("option", { value: "all" }, "Todos los Turnos"),
-                    availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
                 ),
                 React.createElement("select", {
                     value: filter.month,
