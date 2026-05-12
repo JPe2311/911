@@ -99,6 +99,7 @@ function parseLines(raw) {
     return raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 }
 
+
 function parseAgentes(raw) {
     const lines = parseLines(raw);
     const agents = [];
@@ -123,13 +124,15 @@ function parseAgentes(raw) {
         if (!cols.length || cols.length < 2) continue;
         const first = (cols[0] || "").trim();
 
-        if (first === "Fecha del informe:" && cols[1]) {
-            meta.fecha = cols[1];
+        if (first.includes("Fecha del informe") && cols[1]) {
+            meta.fecha = cols[1].trim();
             continue;
         }
-        if (first === "Rango del informe:" && cols[1]) {
-            meta.fechaDesde = cols[1]; meta.fechaHasta = cols[2];
-            meta.horaDesde = cols[3]; meta.horaHasta = cols[4];
+        if (first.includes("Rango del informe") || cols.some(c => c && c.includes("Rango del informe"))) {
+            // Buscar la fecha en las columnas siguientes si no está en la 1 o 2
+            const dateStr = cols.find(c => /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(c));
+            if (dateStr) meta.fechaDesde = dateStr.trim();
+            else { meta.fechaDesde = cols[1]?.trim(); meta.fechaHasta = cols[2]?.trim(); }
             continue;
         }
 
@@ -341,7 +344,13 @@ function parseDespacho(raw, type = "despacho") {
 // ─── OPERATOR PERFORMANCE HELPERS ───────────────────────────────────────────
 function normalizeName(name) {
     if (!name || typeof name !== "string") return "";
-    return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim().replace(/\s+/g, " ");
+    return name
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/,/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function parseNominaCSV(raw) {
@@ -633,16 +642,20 @@ async function loadReportsFromFirestore(year = null) {
     const db = getDB();
     if (!db) return [];
     try {
-        const { collection, query, orderBy, getDocs, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
+        const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const yearNum = year ? parseInt(year) : null;
         let q = query(
             collection(db, "informes"),
             orderBy("fechaGuardado", "desc")
         );
         const snap = await getDocs(q);
         return snap.docs.map(doc => ({ firestoreId: doc.id, ...doc.data() })).filter(r => {
-            const reportYear = r.meta?.year || parseInt(r.id?.substring(6, 10));
-            return reportYear === yearNum;
+            if (!yearNum) return true;
+            // Derivar el año desde fechaGuardado (ISO string) o desde turno.fecha
+            const savedYear = r.fechaGuardado
+                ? new Date(r.fechaGuardado).getFullYear()
+                : (r.turno?.fecha ? parseInt(r.turno.fecha.slice(-4)) : null);
+            return savedYear === yearNum;
         });
     } catch (e) {
         console.error("✗ Error cargando reportes:", e);
@@ -732,35 +745,7 @@ async function saveStaffToFirestore(list) {
     return true;
 }
 
-async function updateStaffTurno(normName, newTurno) {
-    const db = getDB();
-    if (!db) return;
-    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
-    await addDoc(collection(db, "staff_history"), {
-        normName,
-        field: "turno",
-        value: newTurno,
-        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
-        year: new Date().getFullYear(),
-        timestamp: serverTimestamp()
-    });
-}
-
-async function updateStaffArea(normName, newArea) {
-    const db = getDB();
-    if (!db) return;
-    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    await setDoc(doc(db, "staff", normName), { area: newArea }, { merge: true });
-    await addDoc(collection(db, "staff_history"), {
-        normName,
-        field: "area",
-        value: newArea,
-        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
-        year: new Date().getFullYear(),
-        timestamp: serverTimestamp()
-    });
-}
+// (updateStaffTurno and updateStaffArea are now above)
 
 async function updateStaffGroup(normName, newGroup) {
     const db = getDB();
@@ -791,6 +776,7 @@ async function deleteStaff(normName) {
 }
 
 const DEFAULT_TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "Administrativo", "Otro"];
+const DEFAULT_AREAS = ["OPERACIONES", "DESPACHO", "CALIDAD", "ADMINISTRACION", "OTROS"];
 
 async function getConfigTurnos() {
     const db = getDB();
@@ -805,6 +791,58 @@ async function saveConfigTurnos(lista) {
     if (!db) return;
     const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     await setDoc(doc(db, "config", "turnos"), { lista }, { merge: true });
+}
+
+async function getConfigAreas() {
+    const db = getDB();
+    if (!db) return DEFAULT_AREAS;
+    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const snap = await getDoc(doc(db, "config", "areas"));
+    return snap.exists() ? snap.data().lista : DEFAULT_AREAS;
+}
+
+async function saveConfigAreas(lista) {
+    const db = getDB();
+    if (!db) return;
+    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    await setDoc(doc(db, "config", "areas"), { lista }, { merge: true });
+}
+
+async function updateStaffField(normName, field, value) {
+    const db = getDB();
+    if (!db || !normName) { console.error("updateStaffField: db or normName missing", { db, normName }); return; }
+    try {
+        const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        
+        // Guardar en documento principal asegurando que normName esté presente
+        await setDoc(doc(db, "staff", normName), { 
+            [field]: value,
+            normName: normName 
+        }, { merge: true });
+        
+        // Registrar en historial
+        await addDoc(collection(db, "staff_history"), {
+            normName,
+            field,
+            value,
+            month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+            year: new Date().getFullYear(),
+            timestamp: serverTimestamp()
+        });
+        console.log("updateStaffField: saved", { normName, field, value });
+        return true;
+    } catch (e) {
+        console.error("updateStaffField error:", e);
+        return false;
+    }
+}
+
+async function updateStaffTurno(normName, newTurno) {
+    return updateStaffField(normName, "turno", newTurno);
+}
+
+async function updateStaffArea(normName, newArea) {
+    return updateStaffField(normName, "area", newArea);
 }
 
 async function saveOperatorPerformance(list, month, year) {
@@ -842,7 +880,10 @@ async function getStaffList() {
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const snap = await getDocs(collection(db, "staff"));
-    return snap.docs.map(d => d.data());
+    return snap.docs.map(d => ({
+        normName: d.id, // Asegurar que siempre tenga el ID como normName
+        ...d.data()
+    }));
 }
 
 async function getOperatorPerformance(month, year) {
@@ -1065,7 +1106,7 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
     }
 }
 
-async function getPerformanceByGroup(month, year) {
+async function getPerformanceByGroup(month, year, areaFilter = "all") {
     const [perf, staff] = await Promise.all([
         getOperatorPerformance(month, year),
         getStaffList()
@@ -1076,7 +1117,11 @@ async function getPerformanceByGroup(month, year) {
 
     const groups = {};
     perf.forEach(p => {
-        const group = staffMap[p.normName]?.grupo || "Sin Grupo";
+        const s = staffMap[p.normName] || {};
+        // Filtrar por Área si se solicita
+        if (areaFilter !== "all" && s.area !== areaFilter) return;
+
+        const group = s.turno || s.grupo || "Sin Turno";
         if (!groups[group]) {
             groups[group] = {
                 group,
@@ -2026,9 +2071,9 @@ function ViewDespacho({ data }) {
             subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
             dataset: dpI,
         })
-
     );
 }
+
 
 function DistritoRow({ d, maxSec, rank, variant }) {
     const pct = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
@@ -2090,15 +2135,25 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         let cancelled = false;
         setLoading(true);
         if (isFirebase) {
-            loadReportsFromFirestore(filterYear).then(reports => {
-                if (!cancelled) { setHistory(reports); setLoading(false); }
+            loadReportsFromFirestore(null).then(reports => {
+                if (!cancelled) { 
+                    console.log("📊 Historial cargado:", reports.length, "reportes");
+                    setHistory(reports); 
+                    setLoading(false); 
+                }
+            }).catch(err => {
+                console.error("❌ Error cargando historial:", err);
+                if (!cancelled) setLoading(false);
             });
         } else {
-            setHistory(getLocalHistory().slice().reverse());
+            try {
+                const stored = JSON.parse(localStorage.getItem("sae911_reports") || "[]");
+                setHistory(stored.slice().reverse());
+            } catch (_) { setHistory([]); }
             setLoading(false);
         }
         return () => { cancelled = true; };
-    }, [user, filterYear]);
+    }, [user]);
 
     const handleDelete = async (report) => {
         if (isFirebase && report.uid !== user?.uid) return;
@@ -2108,23 +2163,105 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
             const ok = await deleteReportFromFirestore(report.firestoreId);
             if (ok) setHistory(h => h.filter(r => r.firestoreId !== report.firestoreId));
         } else {
-            const updated = getLocalHistory().filter(r => r.id !== report.id);
-            localStorage.setItem("sae911_reports", JSON.stringify(updated));
-            setHistory(updated.slice().reverse());
+            try {
+                const stored = JSON.parse(localStorage.getItem("sae911_reports") || "[]");
+                const updated = stored.filter(r => r.id !== report.id);
+                localStorage.setItem("sae911_reports", JSON.stringify(updated));
+                setHistory(updated.slice().reverse());
+            } catch (_) {}
         }
         setDeleting(null);
     };
 
+    // Multi-format date parser (Extremely robust)
+    const MESES_ES = { 
+        enero:1, ene:1, febrero:2, feb:2, marzo:3, mar:3, abril:4, abr:4, mayo:5, may:5, junio:6, jun:6,
+        julio:7, jul:7, agosto:8, ago:8, septiembre:9, sep:9, octubre:10, oct:10, noviembre:11, nov:11, diciembre:12, dic:12 
+    };
+
+    const parseAnyDate = (str) => {
+        if (!str || typeof str !== "string" || !str.trim()) return null;
+        const clean = str.trim().toLowerCase().replace(/,/g, "");
+        
+        // 1. dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy (No anchors!)
+        let m = clean.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+        if (m) {
+            let y = parseInt(m[3]);
+            if (y < 100) y += 2000;
+            return new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
+        }
+
+        // 2. yyyy-mm-dd (ISO-ish)
+        m = clean.match(/(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})/);
+        if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+
+        // 3. "29 de abril de 2026" or "15 abr 2026"
+        m = clean.match(/(\d{1,2})\s+(?:de\s+)?([a-z\u00e1\u00e9\u00ed\u00f3\u00fa]{3,})\s+(?:de\s+)?(\d{2,4})/);
+        if (m) {
+            const monthName = m[2].substring(0, 3);
+            if (MESES_ES[monthName]) {
+                let y = parseInt(m[3]);
+                if (y < 100) y += 2000;
+                return new Date(y, MESES_ES[monthName] - 1, parseInt(m[1]));
+            }
+        }
+        return null;
+    };
+
+    // Helper: get the SHIFT date (not upload date) for a report
+    const getReportDate = (r) => {
+        // 1. Try turno.fecha
+        let d = parseAnyDate(r.turno?.fecha);
+        if (d && !isNaN(d.getTime())) return d;
+        
+        // 2. Try extraction from turnoLabel
+        if (r.turnoLabel && r.turnoLabel !== "Sin identificar") {
+            d = parseAnyDate(r.turnoLabel);
+            if (d && !isNaN(d.getTime())) return d;
+        }
+
+        // 3. Scan the raw data for ANY date or Spanish month
+        const raw = JSON.stringify(r).toLowerCase();
+        // Look for dd/mm/yyyy
+        const m1 = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m1) return new Date(parseInt(m1[3]), parseInt(m1[2]) - 1, parseInt(m1[1]));
+        
+        // Look for "febrero", "marzo", etc.
+        for (const [name, num] of Object.entries(MESES_ES)) {
+            if (name.length > 3 && raw.includes(name)) {
+                const yearMatch = raw.match(/\d{4}/);
+                const year = yearMatch ? parseInt(yearMatch[0]) : new Date().getFullYear();
+                return new Date(year, num - 1, 1);
+            }
+        }
+
+        // 4. Fallback
+        if (r.fechaGuardado) return new Date(r.fechaGuardado);
+        return null;
+    };
+
     const filteredReports = history.filter(r => {
-        const reportMonth = r.meta?.monthNum?.toString().padStart(2, "0") || r.id?.substring(3, 5);
-        const reportYear = r.meta?.year?.toString() || r.id?.substring(6, 10);
-        return reportMonth === filterMonth && reportYear === filterYear;
+        const d = getReportDate(r);
+        if (!d || isNaN(d.getTime())) return false;
+        const rMonth = (d.getMonth() + 1).toString().padStart(2, "0");
+        const rYear = d.getFullYear().toString();
+        
+        const targetM = filterMonth.trim();
+        const targetY = filterYear.trim();
+        
+        // Log para depuración (puedes verlo en F12)
+        if (rMonth === targetM && rYear === targetY) {
+            // Coincide
+        }
+        
+        return rMonth === targetM && rYear === targetY;
     });
 
     const calendarData = useMemo(() => {
         const days = {};
         filteredReports.forEach(r => {
-            const day = r.meta?.day || parseInt(r.id?.substring(0, 2)) || 1;
+            const d = getReportDate(r);
+            const day = d ? d.getDate() : 1;
             if (!days[day]) days[day] = [];
             days[day].push(r);
         });
@@ -2132,7 +2269,12 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
     }, [filteredReports]);
 
     const availableYears = useMemo(() => {
-        const years = new Set(history.map(h => h.meta?.year || parseInt(h.id?.substring(6, 10))).filter(Boolean));
+        const currentYear = new Date().getFullYear();
+        const years = new Set([currentYear]);
+        history.forEach(r => {
+            const d = getReportDate(r);
+            if (d && !isNaN(d) && d.getFullYear() > 2000) years.add(d.getFullYear());
+        });
         return [...years].sort((a, b) => b - a);
     }, [history]);
 
@@ -2148,7 +2290,9 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         ),
         React.createElement("div", { style: { fontSize: 28, marginBottom: 10 } }, "📋"),
         React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 6 } }, "Sin reportes guardados"),
-        React.createElement("div", { style: { fontSize: 13 } }, isFirebase ? "Los reportes que generes se guardarán automáticamente en Firestore." : "Los reportes se guardan localmente en este navegador.")
+        React.createElement("div", { style: { fontSize: 13 } }, isFirebase
+            ? "Generá un informe cargando los 5 archivos CSV — se guardará automáticamente."
+            : "Los reportes se guardan localmente en este navegador.")
     );
 
     const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -2181,15 +2325,15 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     ),
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Fecha"),
-                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.id?.substring(0, 10))
+                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, 
+                            selectedReport.turno?.fecha || selectedReport.fecha || selectedReport.turnoLabel?.split(" ")[0] || "S/D"
+                        )
                     ),
                     React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Llamadas"),
-                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.blue } }, selectedReport.datos?.agentes?.agents?.length || 0)
-                    ),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Aband. > 30s"),
-                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.red } }, selectedReport.datos?.abandonadas?.totals?.abandonadas30 || 0)
+                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Operadores"),
+                        React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy } }, 
+                            (selectedReport.datos?.agentes?.data?.length || selectedReport.datos?.agentes?.agents?.length || selectedReport.resumen?.totalAgentes || 0)
+                        )
                     )
                 ),
                 React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase" } }, "Resumen de Tiempos"),
@@ -2208,127 +2352,23 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                     )
                 )
             ),
-            canDelete(selectedReport) && React.createElement(Card, { style: { padding: 16 } },
+            canDelete(selectedReport) && React.createElement(Card, { style: { padding: 16, marginBottom: 20 } },
                 React.createElement("button", {
                     onClick: () => handleDelete(selectedReport),
                     disabled: deleting === selectedReport.id,
                     style: { background: C.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", width: "100%" }
                 }, deleting === selectedReport.id ? "Eliminando…" : "🗑️ Eliminar este reporte")
-            )
-        );
-    }
+            ),
 
-    if (selectedDate) {
-        return React.createElement("div", { className: "animate-fade" },
             React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
-                    React.createElement("button", { onClick: () => setSelectedDate(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Calendario"),
-                    React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: C.navy } }, `Día ${selectedDate}`),
-                    React.createElement("div", { style: { fontSize: 12, color: C.gray } }, `${selectedDayReports.length} turnos`)
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 } },
+                    React.createElement(StatKpi, { label: "Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.blue }),
+                    React.createElement(StatKpi, { label: "Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
+                    React.createElement(StatKpi, { label: "Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
                 )
             ),
-            React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-                selectedDayReports.length === 0 ? 
-                    React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día") :
-                    selectedDayReports.map(r => React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
-                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
-                                React.createElement("span", { style: { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
-                                React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
-                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
-                                    React.createElement("div", { style: { fontSize: 11, color: C.gray } }, `${r.datos?.agentes?.agents?.length || 0} operadores`)
-                                )
-                            ),
-                            React.createElement("div", { style: { display: "flex", gap: 8 } },
-                                React.createElement("button", {
-                                    onClick: () => setSelectedReport(r),
-                                    style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                }, "Ver"),
-                                onLoadReport && React.createElement("button", {
-                                    onClick: () => onLoadReport(r),
-                                    style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }
-                                }, "⚡")
-                            )
-                        )))
-                    ))
-                ))
-            )
-        );
-    }
 
-    return React.createElement("div", { className: "animate-fade" },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 } },
-            React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
-            React.createElement("div", null,
-                React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📅 Historial de Reportes"),
-                React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Selecciona un día para ver los turnos")
-            )
-        ),
-        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
-            React.createElement("select", {
-                value: filterMonth,
-                onChange: e => setFilterMonth(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
-            },
-                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
-            ),
-            React.createElement("select", {
-                value: filterYear,
-                onChange: e => setFilterYear(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
-            },
-                availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
-            )
-        ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 24 } },
-            ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map(d => 
-                React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 10, fontWeight: 700, color: C.gray, padding: 8 } }, d)
-            )
-        ),
-        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 } },
-            Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
-                const hasReports = calendarData[day]?.length > 0;
-                const bg = hasReports ? (calendarData[day].length === 1 ? (calendarData[day][0].turnoLabel === "07-19" ? C.yellow : C.mid) : C.green) : "#f1f5f9";
-                const color = hasReports ? (calendarData[day].length === 1 ? C.navy : "#fff") : C.gray;
-                return React.createElement("div", {
-                    key: day,
-                    onClick: () => setSelectedDate(day),
-                    style: {
-                        aspectRatio: "1",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: bg,
-                        color: color,
-                        borderRadius: 10,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: hasReports ? "pointer" : "default",
-                        opacity: hasReports ? 1 : 0.5,
-                        transition: "all .15s"
-                    }
-                },
-                    day,
-                    hasReports && React.createElement("span", { style: { fontSize: 9, marginTop: 2 } }, `${calendarData[day].length}`)
-                )
-            })
-        )
-    );
-}
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", marginBottom: 4 } }, "Guardado"),
-                        React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, selectedReport.fechaGuardado ? new Date(selectedReport.fechaGuardado).toLocaleString("es-ES") : "-")
-                    )
-                )
-            ),
-            React.createElement(Card, { style: { marginBottom: 20 } },
-                React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 16 } }, "📊 Resumen del Reporte"),
-                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 12 } },
-                    React.createElement(StatKpi, { label: "Llamadas Ofrecidas", value: selectedReport.resumen?.totalOfrecidas || 0, accent: C.mid }),
-                    React.createElement(StatKpi, { label: "Llamadas Contestadas", value: selectedReport.resumen?.totalContestadas || 0, accent: C.green }),
-                    React.createElement(StatKpi, { label: "Llamadas Abandonadas", value: selectedReport.resumen?.totalAbandonadas || 0, accent: C.red })
-                )
-            ),
-            selectedReport.datos?.agentes?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
+            selectedReport.datos?.agentes?.agents?.length > 0 && React.createElement(Card, { style: { marginBottom: 20 } },
                 React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "🧍 Operadores"),
                 React.createElement("div", { style: { overflowX: "auto" } },
                     React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 10 } },
@@ -2340,7 +2380,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                             )
                         ),
                         React.createElement("tbody", null,
-                            selectedReport.datos.agentes.map((a, i) =>
+                            selectedReport.datos.agentes.agents.map((a, i) =>
                                 React.createElement("tr", { key: a.nombre + i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
                                     React.createElement("td", { style: { padding: "6px 10px", fontWeight: 600 } }, a.nombre),
                                     React.createElement("td", { style: { padding: "6px 10px", textAlign: "center" } }, a.ofrecidas),
@@ -2356,61 +2396,92 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
         );
     }
 
-    return React.createElement("div", { className: "animate-fade" },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 } },
-            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
-                React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
-                React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📋 Historial de Reportes"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, `${history.length} reportes guardados`)
+if (selectedDate) {
+        return React.createElement("div", { className: "animate-fade" },
+            React.createElement(Card, { style: { marginBottom: 20 } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                    React.createElement("button", { onClick: () => setSelectedDate(null), style: { background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600 } }, "← Volver al Calendario"),
+                    React.createElement("div", { style: { fontSize: 16, fontWeight: 800, color: C.navy } }, `Día ${selectedDate}`),
+                    React.createElement("div", { style: { fontSize: 12, color: C.gray } }, `${selectedDayReports.length} turnos`)
                 )
             ),
-            isFirebase && React.createElement("button", {
-                onClick: () => { setLoading(true); loadReportsFromFirestore().then(r => { setHistory(r); setLoading(false); }); },
-                style: { background: C.greenBg, border: `1px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }
-            }, "↺ Actualizar")
-        ),
-
-        React.createElement(Card, { style: { marginBottom: 20 } },
-            React.createElement("div", { style: { fontWeight: 700, fontSize: 13, color: C.navy, marginBottom: 12 } }, "Filtrar por Turno"),
-            React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-                React.createElement("button", { onClick: () => setFilterTurno(null), style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === null ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === null ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === null ? C.blue : C.gray } }, `Todos (${history.length})`),
-                turnos.map(turno => React.createElement("button", { key: turno, onClick: () => setFilterTurno(turno), style: { padding: "6px 14px", borderRadius: 6, border: filterTurno === turno ? `2px solid ${C.blue}` : `1px solid ${C.border}`, background: filterTurno === turno ? C.light : "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, color: filterTurno === turno ? C.blue : C.gray } }, turno))
-            )
-        ),
-
-        React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
-            React.createElement("div", { style: { overflowX: "auto" } },
-                React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
-                    React.createElement("thead", null,
-                        React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                            ["ID Reporte", "Usuario", "Fecha", "Turno", "Contest.", "Aband.", "Acciones"].map(h =>
-                                React.createElement("th", { key: h, style: { padding: "14px 16px", fontWeight: 700, textAlign: "left", fontSize: 11 } }, h)
+            selectedDayReports.length === 0 
+                ? React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "No hay reportes para este día")
+                : React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
+                    selectedDayReports.map(r => 
+                        React.createElement("div", { key: r.id, style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "#fff", borderRadius: 10, border: `1px solid ${C.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" } },
+                            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+                                React.createElement("span", { style: { fontSize: 20 } }, r.turnoLabel === "07-19" ? "☀️" : "🌙"),
+                                React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
+                                    React.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: C.navy } }, `Turno ${r.turnoLabel}`),
+                                    React.createElement("div", { style: { fontSize: 11, color: C.gray } }, 
+                                        `${r.datos?.agentes?.data?.length || r.datos?.agentes?.agents?.length || 0} operadores • por ${r.createdBy || r.userEmail || r.userName || "Usuario"}`
+                                    )
+                                )
+                            ),
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Ver"),
+                                onLoadReport && React.createElement("button", { onClick: () => onLoadReport(r), style: { background: C.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "⚡")
                             )
                         )
-                    ),
-                    React.createElement("tbody", null,
-                        filteredReports.map((r, i) => {
-                            const reportDate = r.fechaGuardado ? new Date(r.fechaGuardado).toLocaleDateString("es-ES") : "-";
-                            return React.createElement("tr", { key: r.id || i, style: { background: i % 2 === 0 ? "#f8fafc" : "#fff", borderBottom: `1px solid ${C.border}` } },
-                                React.createElement("td", { style: { padding: "12px 16px", fontWeight: 700, fontFamily: "monospace", fontSize: 10, color: C.blue } }, r.id.substring(0, 10) + "…"),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray, fontWeight: 600 } }, r.userDisplayName || r.userEmail || "Sistema"),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, color: C.gray } }, reportDate),
-                                React.createElement("td", { style: { padding: "12px 16px", fontSize: 11, fontWeight: 600 } }, r.turnoLabel),
-                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.green } }, r.resumen?.totalContestadas || 0),
-                                React.createElement("td", { style: { padding: "12px 16px", textAlign: "center", fontWeight: 700, color: C.red } }, r.resumen?.totalAbandonadas || 0),
-                                React.createElement("td", { style: { padding: "12px 16px", display: "flex", gap: 8, alignItems: "center" } },
-                                    React.createElement("button", { onClick: () => setSelectedReport(r), style: { background: C.mid, color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" } }, "Ver"),
-                                    canDelete(r) && React.createElement("button", { onClick: () => handleDelete(r), disabled: deleting === r.id, style: { background: "transparent", color: C.red, border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, cursor: "pointer" } }, "✕")
-                                )
-                            );
-                        })
                     )
                 )
+        );
+    }
+
+    return React.createElement("div", { className: "animate-fade" },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16, marginBottom: 24 } },
+            React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
+            React.createElement("div", null,
+                React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📅 Historial de Reportes"),
+                React.createElement("div", { style: { color: "#1e293b", fontSize: 11, marginTop: 4, background: "#f1f5f9", padding: "4px 10px", borderRadius: 4, border: "1px solid #cbd5e1", display: "inline-block" } }, 
+                    (() => {
+                        const counts = {};
+                        history.forEach(r => {
+                            const d = getReportDate(r);
+                            if (d && !isNaN(d.getTime())) {
+                                const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}`;
+                                counts[key] = (counts[key] || 0) + 1;
+                            } else {
+                                counts["Sin Fecha"] = (counts["Sin Fecha"] || 0) + 1;
+                            }
+                        });
+                        const summary = Object.entries(counts).map(([k, v]) => `${k}(${v})`).join(" | ");
+                        return `Total: ${history.length} | Desglose: ${summary || "Nada"}`;
+                    })()
+                )
             )
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20 } },
+            React.createElement("select", { value: filterMonth, onChange: e => setFilterMonth(e.target.value), style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" } },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", { value: filterYear, onChange: e => setFilterYear(e.target.value), style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" } },
+                availableYears.map(y => React.createElement("option", { key: y, value: y }, y))
+            )
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 24 } },
+            ["Dom", "Lun", "Mar", "Mié", "Vie", "Sáb", "Sáb"].map(d => React.createElement("div", { key: d, style: { textAlign: "center", fontSize: 10, fontWeight: 700, color: C.gray, padding: 8 } }, d))
+        ),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 } },
+            Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
+                const hasReports = calendarData[day]?.length > 0;
+                const bg = hasReports ? (calendarData[day].length === 1 ? (calendarData[day][0].turnoLabel === "07-19" ? C.yellow : C.mid) : C.green) : "#f1f5f9";
+                const color = hasReports ? (calendarData[day].length === 1 ? C.navy : "#fff") : C.gray;
+                return React.createElement("div", {
+                    key: day,
+                    onClick: () => hasReports && setSelectedDate(day),
+                    style: { aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: bg, color: color, borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: hasReports ? "pointer" : "default", opacity: hasReports ? 1 : 0.5 }
+                },
+                    day,
+                    hasReports && React.createElement("span", { style: { fontSize: 9, marginTop: 2 } }, `${calendarData[day].length}`)
+                );
+            })
         )
     );
 }
+
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  VIEW: MENSUAL (Enhanced — Filters, Charts, Turno)
@@ -2423,6 +2494,7 @@ function ViewMensual({ user, onBack }) {
     const [filterYear, setFilterYear] = useState("all");
     const [filterMonth, setFilterMonth] = useState("all");
     const [filterTurno, setFilterTurno] = useState("all"); // "all" | "dia" | "noche"
+    const [viewMode, setViewMode] = useState("mensual"); // "mensual" | "trimestral" | "anual"
     const [selectedMonths, setSelectedMonths] = useState([]);
 
 
@@ -2456,6 +2528,30 @@ function ViewMensual({ user, onBack }) {
         try {
             const text = await file.text();
             const lines = parseLines(text);
+            
+            // Detectar delimitador de las primeras líneas
+            let delimiter = ";";
+            for (let i = 0; i < Math.min(5, lines.length); i++) {
+                if (lines[i].includes(";")) { delimiter = ";"; break; }
+                if (lines[i].includes(",")) { delimiter = ","; break; }
+                if (lines[i].includes("\t")) { delimiter = "\t"; break; }
+            }
+            
+            const parseRow = (line) => {
+                if (delimiter === "\t") return line.split("\t").map(s => s.trim());
+                if (delimiter === ";") return parseSemicolon(line);
+                const cols = [];
+                let cur = "", inQ = false;
+                for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (c === '"') { inQ = !inQ; continue; }
+                    if (c === delimiter && !inQ) { cols.push(cur.trim()); cur = ""; }
+                    else cur += c;
+                }
+                cols.push(cur.trim());
+                return cols;
+            };
+
             let totalOfrecidas = 0, totalContestadas = 0, totalAbandonadas = 0;
             const dailyData = {};
             const hourlyData = [];
@@ -2466,7 +2562,7 @@ function ViewMensual({ user, onBack }) {
             let isNewFormat = false;
 
             lines.forEach((line) => {
-                const cols = parseSemicolon(line);
+                const cols = parseRow(line);
                 if (cols.length < 3) return;
 
                 // Detect header
@@ -2481,7 +2577,7 @@ function ViewMensual({ user, onBack }) {
                             if (h.includes("intervalo")) colIdx.intervalo = i;
                             if (h === "abandonadas") colIdx.abandonadas = i;
                             if (h === "ofrecidas" || (h.includes("ofrec") && !h.includes("abandon"))) colIdx.ofrecidas = i;
-                            if (h.includes("abandonadas contestadas") || h.includes("abandon") && h.includes("contest")) colIdx.contestadas = i;
+                            if (h === "contestadas" || h.includes("abandonadas contestadas") || (h.includes("abandon") && h.includes("contest"))) colIdx.contestadas = i;
                             if (h.includes("en cola") || h.includes("cola")) colIdx.enCola = i;
                             if (h.includes("abandonadas avisando") || (h.includes("abandon") && h.includes("avisan"))) colIdx.avisandoAb = i;
                             if (h === "avisando") colIdx.avisando = i;
@@ -2522,15 +2618,19 @@ function ViewMensual({ user, onBack }) {
 
                 if (!ofrec && !contest && !aband) return;
 
-                // Parse date (d/m/yyyy)
-                const dateParts = fechaRaw.split(/[\/-]/);
+                // Parse date (d/m/yyyy, m/d/yyyy, yyyy-m-d)
+                const dateParts = fechaRaw.split(/[\/-]/).map(p => parseInt(p, 10));
                 let dayNum = 0;
-                if (dateParts.length >= 2) {
-                    const p0 = parseInt(dateParts[0]);
-                    const p1 = parseInt(dateParts[1]);
-                    if (p1 === monthNum) dayNum = p0;
-                    else if (p0 === monthNum) dayNum = p1;
-                    else dayNum = p0;
+                if (dateParts.length >= 3) {
+                    if (dateParts[0] > 31) {
+                        dayNum = dateParts[1] === monthNum ? dateParts[2] : dateParts[1];
+                    } else if (dateParts[2] > 31) {
+                        dayNum = dateParts[1] === monthNum ? dateParts[0] : dateParts[1];
+                    } else {
+                        dayNum = dateParts[0]; // Fallback
+                    }
+                } else if (dateParts.length === 2) {
+                    dayNum = dateParts[1] === monthNum ? dateParts[0] : dateParts[1];
                 }
 
                 // Parse hour from intervalo "HH:MM - HH:MM" or simple hour
@@ -2605,7 +2705,11 @@ function ViewMensual({ user, onBack }) {
     // ──── KPI aggregate ──────────────────────────────────────────────────────
     const kpis = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         let tO = 0, tC = 0, tA = 0, tEC = 0, tAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
         target.forEach(h => {
@@ -2632,55 +2736,93 @@ function ViewMensual({ user, onBack }) {
         const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
         const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
         return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, totalManejo: mSum, totalAvisando: avSum, count: target.length };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
-    // ──── Monthly Comparison KPIs (per-month with deltas) ────────────────────
+    // ──── Period Comparison KPIs (per-month/quarter/year with deltas) ────────
     const monthlyCompData = useMemo(() => {
         if (filteredHistory.length === 0) return null;
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (target.length === 0) return null;
 
-        const sorted = [...target].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
-
-        const monthStats = sorted.map(h => {
-            if (!h) return null;
-            const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
-            if (rows && rows.length) {
-                rows.forEach(r => {
-                    if (!r) return;
-                    rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
-                    rEC += r.ec || 0; rAV += r.av || 0;
-                    if (r.manejo) { mSum += r.manejo; mCnt++; }
-                    if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
-                });
-            } else if (h.resumen) {
-                rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
+        // Grouping
+        const groups = {};
+        target.forEach(h => {
+            if (!h) return;
+            const q = Math.ceil(h.meta.monthNum / 3);
+            let pId, label, sortKey;
+            if (viewMode === "mensual") {
+                pId = h.firestoreId;
+                label = h.meta.label;
+                sortKey = h.meta.year * 100 + h.meta.monthNum;
+            } else if (viewMode === "trimestral") {
+                pId = `Q${q}-${h.meta.year}`;
+                label = `Q${q} ${h.meta.year}`;
+                sortKey = h.meta.year * 10 + q;
+            } else {
+                pId = `Y${h.meta.year}`;
+                label = `Año ${h.meta.year}`;
+                sortKey = h.meta.year;
             }
+            
+            if (!groups[pId]) {
+                groups[pId] = { pId, label, sortKey, items: [] };
+            }
+            groups[pId].items.push(h);
+        });
+
+        const sortedGroups = Object.values(groups).sort((a, b) => a.sortKey - b.sortKey);
+
+        const periodStats = sortedGroups.map(g => {
+            let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
+            let totalUniqueDays = 0;
+
+            g.items.forEach(h => {
+                const rows = filterDetailsByTurno(h.detalles, filterTurno);
+                if (rows && rows.length) {
+                    rows.forEach(r => {
+                        if (!r) return;
+                        rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
+                        rEC += r.ec || 0; rAV += r.av || 0;
+                        if (r.manejo) { mSum += r.manejo; mCnt++; }
+                        if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
+                    });
+                    totalUniqueDays += new Set(rows.map(r => r.d)).size;
+                } else if (h.resumen) {
+                    rO += h.resumen.totalOfrecidas || 0; 
+                    rC += h.resumen.totalContestadas || 0; 
+                    rA += h.resumen.totalAbandonadas || 0;
+                    totalUniqueDays += 30; // fallback if no details
+                }
+            });
+
             const pctAb = rO ? (rA / rO * 100) : 0;
             const pctAt = rO ? (rC / rO * 100) : 0;
             const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
             const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
-            const uniqueDays = rows && rows.length ? new Set(rows.map(r => r.d)).size : 1;
-            const promDiario = uniqueDays ? Math.round(rO / uniqueDays) : 0;
-            const promAbandDiario = uniqueDays ? Math.round(rA / uniqueDays) : 0;
+            const promDiario = totalUniqueDays ? Math.round(rO / totalUniqueDays) : 0;
+            const promAbandDiario = totalUniqueDays ? Math.round(rA / totalUniqueDays) : 0;
+
             return {
-                label: h.meta.label, monthNum: h.meta.monthNum, year: h.meta.year,
-                firestoreId: h.firestoreId,
+                label: g.label, firestoreId: g.pId,
                 ofrecidas: rO, contestadas: rC, abandonadas: rA,
                 enCola: rEC, avisando: rAV,
                 pctAb, pctAt, avgManejo, avgAvisando,
                 totalManejo: mSum, totalAvisando: avSum,
-                promDiario, promAbandDiario, uniqueDays
+                promDiario, promAbandDiario, uniqueDays: totalUniqueDays,
+                items: g.items
             };
         });
 
-        // Calculate deltas (vs previous month)
-        const withDeltas = monthStats.map((cur, i) => {
+        // Calculate deltas (vs previous period)
+        const withDeltas = periodStats.map((cur, i) => {
             if (i === 0) return { ...cur, deltas: null };
-            const prev = monthStats[i - 1];
+            const prev = periodStats[i - 1];
             const delta = (curVal, prevVal) => prevVal !== 0 ? ((curVal - prevVal) / prevVal * 100) : (curVal > 0 ? 100 : 0);
             return {
                 ...cur,
@@ -2688,7 +2830,7 @@ function ViewMensual({ user, onBack }) {
                     ofrecidas: delta(cur.ofrecidas, prev.ofrecidas),
                     contestadas: delta(cur.contestadas, prev.contestadas),
                     abandonadas: delta(cur.abandonadas, prev.abandonadas),
-                    pctAb: cur.pctAb - prev.pctAb,  // Simple difference for percentage points
+                    pctAb: cur.pctAb - prev.pctAb,
                     pctAt: cur.pctAt - prev.pctAt,
                     avgManejo: cur.avgManejo - prev.avgManejo,
                     totalManejo: delta(cur.totalManejo, prev.totalManejo),
@@ -2698,40 +2840,44 @@ function ViewMensual({ user, onBack }) {
         });
 
         return withDeltas;
-
-        return withDeltas;
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Comparison bar ──────────────────────────────────────────────
     const compChart = useMemo(() => {
-        if (filteredHistory.length === 0) return null;
-        const data = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
-            : filteredHistory;
-        if (data.length === 0) return null;
-        const sorted = [...data].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
+        if (!monthlyCompData || monthlyCompData.length === 0) return null;
         return {
-            labels: sorted.map(s => s.meta?.label || "—"),
+            labels: monthlyCompData.map(s => s.label || "—"),
             datasets: [
-                { label: "Ofrecidas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.o || 0), 0) : (s.resumen?.totalOfrecidas || 0); }), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
-                { label: "Contestadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.c || 0), 0) : (s.resumen?.totalContestadas || 0); }), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
-                { label: "Abandonadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.ab || 0), 0) : (s.resumen?.totalAbandonadas || 0); }), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
+                { label: "Ofrecidas", data: monthlyCompData.map(s => s.ofrecidas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
+                { label: "Contestadas", data: monthlyCompData.map(s => s.contestadas), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
+                { label: "Abandonadas", data: monthlyCompData.map(s => s.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [monthlyCompData]);
 
     // ──── Chart: Daily trend (single month) ──────────────────────────────────
     const dailyChart = useMemo(() => {
-        const single = selectedMonths.length === 1
-            ? history.find(h => h.firestoreId === selectedMonths[0])
-            : (filteredHistory.length === 1 ? filteredHistory[0] : null);
-        if (!single || !single.detalles) return null;
-        const rows = filterDetailsByTurno(single.detalles, filterTurno);
+        const target = selectedMonths.length > 0
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
+            : filteredHistory;
+        if (!target.length) return null;
+        const single = target[0]; // If multiple months are grouped, this chart will aggregate all days 1..31 across them
+        // Actually, let's aggregate ALL targets so if Q1 is selected, day 1 is sum of Jan 1 + Feb 1 + Mar 1.
+        // Wait, if it's just "single month" trend, let's use all targets.
+        // The previous code used `selectedMonths.length === 1 ? ...`. We will now map over all elements in `target`.
         const byDay = {};
-        rows.forEach(r => {
-            if (!r || r.d === undefined) return;
-            if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
-            byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
+        target.forEach(h => {
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
+            if (!rows) return;
+            rows.forEach(r => {
+                if (!r || r.d === undefined) return;
+                if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
+                byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
+            });
         });
         const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
         return {
@@ -2742,12 +2888,16 @@ function ViewMensual({ user, onBack }) {
                 { label: "Abandonadas", data: days.map(d => byDay[d].ab), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.06)", fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: C.red, borderWidth: 2 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Hourly distribution ─────────────────────────────────────────
     const hourlyChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (!target.length) return null;
         const byHour = {};
@@ -2775,12 +2925,16 @@ function ViewMensual({ user, onBack }) {
                 { label: "Prom. Abandonadas/día", data: hours.map(h => Math.round(byHour[h].ab / divisor)), backgroundColor: "rgba(220,38,38,0.6)", borderRadius: 5 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history]);
+    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
 
     // ──── Chart: Day of Week distribution ────────────────────────────────────
     const weekDayChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            ? history.filter(h => {
+                const q = Math.ceil(h.meta.monthNum / 3);
+                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
+                return selectedMonths.includes(pId);
+            })
             : filteredHistory;
         if (!target.length) return null;
 
@@ -2930,6 +3084,25 @@ function ViewMensual({ user, onBack }) {
         history.length > 0 && React.createElement(Card, { style: { marginBottom: 20, padding: "16px 24px" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" } },
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, display: "flex", alignItems: "center", gap: 6 } }, "🔍 Filtros"),
+                // Agrupacion
+                React.createElement("div", { style: { display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 3 } },
+                    [
+                        { id: "mensual", label: "Mensual", icon: "🗓️" },
+                        { id: "trimestral", label: "Trimestral", icon: "📊" },
+                        { id: "anual", label: "Anual", icon: "📅" }
+                    ].map(t => React.createElement("button", {
+                        key: t.id,
+                        onClick: () => { setViewMode(t.id); setSelectedMonths([]); },
+                        style: {
+                            padding: "6px 14px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                            background: viewMode === t.id ? "#fff" : "transparent",
+                            color: viewMode === t.id ? C.blue : C.gray,
+                            boxShadow: viewMode === t.id ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+                            transition: "all .15s",
+                            display: "flex", alignItems: "center", gap: 4
+                        }
+                    }, t.icon, " ", t.label))
+                ),
                 // Year filter
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
                     React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1 } }, "Año"),
@@ -2988,12 +3161,12 @@ function ViewMensual({ user, onBack }) {
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontWeight: 900, fontSize: 17, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
-                        "📐 Comparativa Numérica Mensual"
+                        "📐 Comparativa Numérica"
                     ),
                     React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 3 } },
                         monthlyCompData.length > 1
-                            ? "Variación mes a mes — flechas verdes indican mejora, rojas indican deterioro"
-                            : "Métricas del mes seleccionado"
+                            ? "Variación período a período — flechas verdes indican mejora, rojas indican deterioro"
+                            : "Métricas del período seleccionado"
                     )
                 ),
                 monthlyCompData.length > 1 && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
@@ -3073,11 +3246,11 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
-                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
+                            ["Período", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
                                 React.createElement("th", {
                                     key: h + Math.random(), style: {
                                         padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
-                                        fontSize: h === "Mes" ? 11 : 10, whiteSpace: "nowrap",
+                                        fontSize: h === "Período" ? 11 : 10, whiteSpace: "nowrap",
                                         borderRight: ["Δ", "Δ pp"].includes(h) ? "2px solid rgba(255,255,255,0.1)" : "none"
                                     }
                                 }, h)
@@ -3176,7 +3349,7 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 } },
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontWeight: 900, fontSize: 14, color: C.navy } }, "📊 Ranking de Desempeño (Abandono)"),
-                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por mes")
+                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por período")
                     ),
                     (() => {
                         const avgAb = (monthlyCompData.reduce((s, m) => s + m.pctAb, 0) / monthlyCompData.length).toFixed(1);
@@ -3196,7 +3369,7 @@ function ViewMensual({ user, onBack }) {
                             const bgAlpha = m.pctAb > 25 ? "rgba(220,38,38,0.1)" : m.pctAb > 15 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)";
 
                             return React.createElement("div", { key: m.firestoreId, style: { display: "grid", gridTemplateColumns: "140px 1fr 100px", alignItems: "center", gap: 15, padding: "8px 12px", borderRadius: 10, background: i === 0 && m.pctAb > 25 ? "rgba(220,38,38,0.03)" : "transparent" } },
-                                // Month Label
+                                // Period Label
                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
                                     React.createElement("span", { style: { width: 18, height: 18, borderRadius: 5, background: i === 0 ? C.navy : "#e2e8f0", color: i === 0 ? "#fff" : C.gray, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" } }, i + 1),
                                     m.label
@@ -3220,48 +3393,33 @@ function ViewMensual({ user, onBack }) {
             )
         ),
 
-        // ── PER-MONTH KPI CARDS (general → particular) ────────────────────────
-        filteredHistory.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
+        // ── PER-PERIOD KPI CARDS (general → particular) ────────────────────────
+        monthlyCompData && monthlyCompData.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 } },
-                "📅 KPIs por Mes",
-                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${filteredHistory.length} ${filteredHistory.length === 1 ? "mes" : "meses"}`)
+                "📅 KPIs por Período",
+                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${monthlyCompData.length} ${monthlyCompData.length === 1 ? "período" : "períodos"}`)
             ),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 } },
                 (() => {
-                    // Compute max ofrecidas across visible months for relative bar sizing
-                    const allRO = filteredHistory.map(h => {
-                        if (!h) return 0;
-                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                        return rows && rows.length ? rows.reduce((s, r) => s + (r?.o || 0), 0) : (h.resumen?.totalOfrecidas || 0);
-                    });
-                    const maxRO = Math.max(...allRO, 1);
+                    const maxRO = Math.max(...monthlyCompData.map(m => m.ofrecidas), 1);
 
-                    return filteredHistory.map((h, i) => {
-                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                        let rO, rC, rA, rEC, rAV, rM;
-                        if (rows && rows.length) {
-                            rO = rows.reduce((s, r) => s + (r?.o || 0), 0);
-                            rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
-                            rA = rows.reduce((s, r) => s + (r?.ab || 0), 0);
-                            rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
-                            rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
-                            const mRows = rows.filter(r => r && r.manejo);
-                            rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
-                        } else if (h.resumen) {
-                            rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
-                            rEC = 0; rAV = 0; rM = 0;
-                        } else {
-                            rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
-                        }
-                        const pctAt = rO ? (rC / rO * 100) : 0;
-                        const pctAb = rO ? (rA / rO * 100) : 0;
-                        const isSel = selectedMonths.includes(h.firestoreId);
+                    return monthlyCompData.map((m, i) => {
+                        const rO = m.ofrecidas;
+                        const rC = m.contestadas;
+                        const rA = m.abandonadas;
+                        const rEC = m.enCola;
+                        const rAV = m.avisando;
+                        const rM = m.avgManejo;
+
+                        const pctAt = m.pctAt;
+                        const pctAb = m.pctAb;
+                        const isSel = selectedMonths.includes(m.firestoreId);
                         const atColor = pctAt >= 85 ? C.green : pctAt >= 70 ? C.yellow : C.red;
                         const abColor = pctAb > 25 ? C.red : pctAb > 15 ? C.orange : C.green;
 
                         return React.createElement("div", {
-                            key: h.firestoreId,
-                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]),
+                            key: m.firestoreId,
+                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== m.firestoreId) : [...s, m.firestoreId]),
                             style: {
                                 background: "#fff", borderRadius: 12, padding: "18px 20px",
                                 border: `2px solid ${isSel ? C.blue : C.border}`,
@@ -3275,8 +3433,8 @@ function ViewMensual({ user, onBack }) {
                             // Header row
                             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, marginTop: 4 } },
                                 React.createElement("div", null,
-                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, h.meta.label),
-                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${h.meta.year} — ${MONTH_NAMES[h.meta.monthNum] || ""}`)
+                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, m.label),
+                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${m.items.length} ${m.items.length === 1 ? 'mes agrupado' : 'meses agrupados'}`)
                                 ),
                                 isSel && React.createElement("div", { style: { background: C.light, color: C.blue, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 700 } }, "✓ Seleccionado")
                             ),
@@ -3549,6 +3707,8 @@ function MensualHeatmap({ report, turnoFilter }) {
 function ViewComparativaGrupos({ user, onBack }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [areaFilter, setAreaFilter] = useState("all");
+    const [availableAreas, setAvailableAreas] = useState([]);
     const [filter, setFilter] = useState({
         month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
         year: new Date().getFullYear().toString()
@@ -3556,12 +3716,16 @@ function ViewComparativaGrupos({ user, onBack }) {
 
     const loadData = async () => {
         setLoading(true);
-        const res = await getPerformanceByGroup(filter.month, filter.year);
+        const [res, areas] = await Promise.all([
+            getPerformanceByGroup(filter.month, filter.year, areaFilter),
+            getConfigAreas()
+        ]);
         setData(res);
+        setAvailableAreas(areas);
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [filter]);
+    useEffect(() => { loadData(); }, [filter, areaFilter]);
 
     const stats = useMemo(() => {
         if (!data.length) return null;
@@ -3577,11 +3741,27 @@ function ViewComparativaGrupos({ user, onBack }) {
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Comparativa de Grupos"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Métricas agregadas por Célula/Grupo")
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Análisis de Operadores"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Desempeño individual y evolución mensual")
                 )
             ),
             React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("select", {
+                    value: areaFilter,
+                    onChange: e => setAreaFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+                ),
+                React.createElement("select", {
+                    value: groupFilter,
+                    onChange: e => setGroupFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                    availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+                ),
                 React.createElement("select", {
                     value: filter.month,
                     onChange: e => setFilter({ ...filter, month: e.target.value }),
@@ -3704,24 +3884,35 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     const [history, setHistory] = useState([]);
     const [filter, setFilter] = useState({ month: (new Date().getMonth() + 1).toString().padStart(2, "0"), year: new Date().getFullYear().toString() });
     const [groupFilter, setGroupFilter] = useState("all");
+    const [areaFilter, setAreaFilter] = useState("all");
     const [staffMap, setStaffMap] = useState({});
     const [availableGroups, setAvailableGroups] = useState([]);
+    const [availableAreas, setAvailableAreas] = useState([]);
 
     const loadData = async () => {
         setLoading(true);
-        const [pList, staff] = await Promise.all([
-            getOperatorPerformance(filter.month, filter.year),
-            getStaffList()
-        ]);
-        setPerf(pList);
-        const map = {};
-        for (const s of staff) {
-            const ta = await getStaffTurnoArea(s.normName, filter.month, parseInt(filter.year));
-            map[s.normName] = { ...s, turno: ta.turno || s.turno || "" };
+        try {
+            const [pList, staff, tList, aList] = await Promise.all([
+                getOperatorPerformance(filter.month, filter.year),
+                getStaffList(),
+                getConfigTurnos(),
+                getConfigAreas()
+            ]);
+            
+            setPerf(pList);
+            setAvailableGroups(tList);
+            setAvailableAreas(aList);
+
+            // Mapa con llaves normalizadas para un cruce perfecto
+            const map = {};
+            staff.forEach(s => {
+                const id = normalizeName(s.normName || s.name);
+                if (id) map[id] = s;
+            });
+            setStaffMap(map);
+        } catch (e) {
+            console.error("Error en Ranking Detallado:", e);
         }
-        setStaffMap(map);
-        const groups = [...new Set(Object.values(map).map(s => s.turno).filter(Boolean))].sort();
-        setAvailableGroups(groups);
         setLoading(false);
     };
 
@@ -3765,11 +3956,14 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
 
     const combined = useMemo(() => {
         return perf.map(p => {
+            const id = normalizeName(p.normName);
+            const s = staffMap[id] || {};
             const hours = (p.totalConectado / 3600) || 1;
             const coefProd = p.c / hours;
             return {
                 ...p,
-                turno: staffMap[p.normName]?.turno || "",
+                turno: s.turno || "—",
+                area: s.area || "—",
                 coefProd: coefProd.toFixed(1),
                 scoreQuality: (p.pctProd).toFixed(1),
             };
@@ -3777,9 +3971,12 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
     }, [perf, staffMap]);
 
     const filteredCombined = useMemo(() => {
-        if (groupFilter === "all") return combined;
-        return combined.filter(p => p.turno === groupFilter);
-    }, [combined, groupFilter]);
+        return combined.filter(p => {
+            const matchesTurno = groupFilter === "all" || p.turno === groupFilter;
+            const matchesArea = areaFilter === "all" || p.area === areaFilter;
+            return matchesTurno && matchesArea;
+        });
+    }, [combined, groupFilter, areaFilter]);
 
     const stats = useMemo(() => {
         if (!filteredCombined.length) return null;
@@ -3801,7 +3998,15 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                 )
             ),
             React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center" } },
-                availableGroups.length > 0 && React.createElement("select", {
+                React.createElement("select", {
+                    value: areaFilter,
+                    onChange: e => setAreaFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+                ),
+                React.createElement("select", {
                     value: groupFilter,
                     onChange: e => setGroupFilter(e.target.value),
                     style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
@@ -3979,7 +4184,7 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
             React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                 React.createElement("thead", null,
                     React.createElement("tr", { style: { textAlign: "left", background: "#f1f5f9" } },
-                        ["Operador", "Turno", "Atendidas", "Prod (At/Hr)", "% Preparado", "Calidad"].map(h =>
+                        ["Operador", "Turno", "Área", "Atendidas", "Prod (At/Hr)", "Calidad"].map(h =>
                             React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                         )
                     )
@@ -4004,7 +4209,10 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
-                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno ? C.mid : C.gray, bg: p.turno ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                            React.createElement(Badge, { label: p.turno || "S/T", color: p.turno && p.turno !== "—" ? C.mid : C.gray, bg: p.turno && p.turno !== "—" ? "rgba(46,95,163,0.08)" : "#f1f5f9" })
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement(Badge, { label: p.area || "S/A", color: p.area && p.area !== "—" ? C.navy : C.gray, bg: p.area && p.area !== "—" ? "rgba(15,36,68,0.08)" : "#f1f5f9" })
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", fontWeight: 700 } }, p.c.toLocaleString()),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
@@ -4013,7 +4221,6 @@ function ViewAnalisisOperadores({ user, onBack, navigateToProfile }) {
                                                 React.createElement(MiniBar, { pct: parseFloat(p.coefProd) * 5, color: C.blue })
                                             )
                                         ),
-                                        React.createElement("td", { style: { padding: "14px 20px", fontSize: 13, color: C.gray, fontWeight: 700 } }, `${p.pctProd}%`),
                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
                                                 React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: parseFloat(p.scoreQuality) > 80 ? C.green : C.orange } }, `${p.scoreQuality}%`),
@@ -4300,29 +4507,62 @@ function ViewGestorPersonal({ user, onBack }) {
     const [saving, setSaving] = useState(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [turnos, setTurnos] = useState(DEFAULT_TURNOS);
+    const [areas, setAreas] = useState(DEFAULT_AREAS);
     const [editTurnos, setEditTurnos] = useState(false);
+    const [editAreas, setEditAreas] = useState(false);
     const [tempTurnos, setTempTurnos] = useState("");
+    const [tempAreas, setTempAreas] = useState("");
     const [selected, setSelected] = useState(new Set());
     const [bulkTurno, setBulkTurno] = useState("");
+    const [bulkArea, setBulkArea] = useState("");
+    const [areaFilter, setAreaFilter] = useState("all");
+    const [turnoFilter, setTurnoFilter] = useState("all");
 
     const loadStaff = async () => {
         setLoading(true);
-        const [registered, performance, tList] = await Promise.all([
-            getStaffList(),
-            getUniqueOperators(),
-            getConfigTurnos()
-        ]);
+        try {
+            const [registered, performance, tList, aList] = await Promise.all([
+                getStaffList(),
+                getUniqueOperators(),
+                getConfigTurnos(),
+                getConfigAreas()
+            ]);
 
-        setTurnos(tList);
+            setTurnos(tList);
+            setAreas(aList);
 
-        const masterList = [...registered];
-        performance.forEach(op => {
-            if (!masterList.find(s => s.normName === op.normName)) {
-                masterList.push({ ...op, turno: "—" });
-            }
-        });
+            // Usar un Map con nombres normalizados para evitar duplicados y discrepancias
+            const masterMap = new Map();
 
-        setStaff(masterList.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            // 1. Cargar personal ya registrado
+            registered.forEach(s => {
+                const id = normalizeName(s.normName || s.name);
+                if (id) masterMap.set(id, { ...s, normName: id });
+            });
+
+            // 2. Cargar operadores con desempeño que NO estén en personal
+            performance.forEach(op => {
+                const id = normalizeName(op.normName || op.name);
+                if (id && !masterMap.has(id)) {
+                    masterMap.set(id, { 
+                        ...op, 
+                        normName: id,
+                        turno: "—", 
+                        area: "—" 
+                    });
+                } else if (id && masterMap.has(id)) {
+                    // Si ya existe, nos aseguramos de que el nombre sea el más legible
+                    const existing = masterMap.get(id);
+                    if (!existing.name && op.name) {
+                        masterMap.set(id, { ...existing, name: op.name });
+                    }
+                }
+            });
+
+            setStaff(Array.from(masterMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+        } catch (e) {
+            console.error("Error loading staff grid:", e);
+        }
         setLoading(false);
     };
 
@@ -4335,13 +4575,24 @@ function ViewGestorPersonal({ user, onBack }) {
         setEditTurnos(false);
     };
 
-    const handleUpdateTurnoDirect = async (normName, newTurno) => {
+    const handleSaveAreas = async () => {
+        const lista = tempAreas.split("\n").map(t => t.trim()).filter(t => t);
+        await saveConfigAreas(lista);
+        setAreas(lista);
+        setEditAreas(false);
+    };
+
+    const handleUpdateFieldDirect = async (normName, field, value) => {
         setSaving(normName);
-        const db = getDB();
-        if (db) {
-            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-            await setDoc(doc(db, "staff", normName), { turno: newTurno }, { merge: true });
-            setStaff(prev => prev.map(s => s.normName === normName ? { ...s, turno: newTurno } : s));
+        try {
+            const success = await updateStaffField(normName, field, value);
+            if (success !== false) {
+                setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
+            } else {
+                console.error("handleUpdateFieldDirect: update failed");
+            }
+        } catch (e) {
+            console.error("handleUpdateFieldDirect error:", e);
         }
         setSaving(null);
     };
@@ -4375,19 +4626,16 @@ function ViewGestorPersonal({ user, onBack }) {
         setSaving(null);
     };
 
-    const handleBulkUpdateTurno = async () => {
-        if (selected.size === 0 || !bulkTurno) return;
+    const handleBulkUpdate = async (field, value) => {
+        if (selected.size === 0 || !value) return;
         setSaving("bulk");
-        const db = getDB();
-        if (db) {
-            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-            for (const normName of selected) {
-                await setDoc(doc(db, "staff", normName), { turno: bulkTurno }, { merge: true });
-            }
+        for (const normName of selected) {
+            await updateStaffField(normName, field, value);
         }
-        setStaff(prev => prev.map(s => selected.has(s.normName) ? { ...s, turno: bulkTurno } : s));
+        setStaff(prev => prev.map(s => selected.has(s.normName) ? { ...s, [field]: value } : s));
         setSelected(new Set());
-        setBulkTurno("");
+        if (field === "turno") setBulkTurno("");
+        if (field === "area") setBulkArea("");
         setSaving(null);
     };
 
@@ -4397,29 +4645,23 @@ function ViewGestorPersonal({ user, onBack }) {
         e.target.value = "";
         const text = await file.text();
         const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-        const db = getDB();
-        if (!db) return;
         setSaving("bulk");
         let updated = 0;
-        let skipped = 0;
         for (const line of lines) {
             const parts = line.split(";").map(p => p.trim());
             if (parts.length >= 2 && parts[0]) {
                 const name = parts[0];
                 const turno = parts[1];
-                const normName = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/,/g, "").replace(/\s+/g, " ");
-                const { doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-                const existing = await getDoc(doc(db, "staff", normName));
-                if (existing.exists()) {
-                    await setDoc(doc(db, "staff", normName), { turno }, { merge: true });
-                } else {
-                    await setDoc(doc(db, "staff", normName), { name, turno, normName }, { merge: true });
-                }
+                const area = parts[2] || "";
+                const normName = normalizeName(name);
+                await updateStaffField(normName, "name", name);
+                if (turno) await updateStaffField(normName, "turno", turno);
+                if (area) await updateStaffField(normName, "area", area);
                 updated++;
             }
         }
         await loadStaff();
-        alert(`✅ ${updated} operadores actualizados`);
+        alert(`✅ ${updated} operadores procesados`);
         setSaving(null);
     };
 
@@ -4442,12 +4684,16 @@ function ViewGestorPersonal({ user, onBack }) {
         setSaving(null);
     };
 
-    const filteredStaff = staff.filter(s => {
-        const n = (s.name || "").toLowerCase();
-        const t = (s.turno || "").toLowerCase();
-        const sc = (searchTerm || "").toLowerCase();
-        return n.includes(sc) || t.includes(sc);
-    });
+    const filteredStaff = useMemo(() => {
+        return staff.filter(s => {
+            const sc = (searchTerm || "").toLowerCase();
+            const n = (s.name || "").toLowerCase();
+            const matchesSearch = n.includes(sc);
+            const matchesArea = areaFilter === "all" || s.area === areaFilter;
+            const matchesTurno = turnoFilter === "all" || s.turno === turnoFilter;
+            return matchesSearch && matchesArea && matchesTurno;
+        });
+    }, [staff, searchTerm, areaFilter, turnoFilter]);
 
     const groupCounts = useMemo(() => {
         const counts = {};
@@ -4463,18 +4709,36 @@ function ViewGestorPersonal({ user, onBack }) {
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
                     React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👥 Gestión de Personal"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Asignación de Turnos a operadores")
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Configuración de Áreas y Turnos por operador")
                 )
             ),
-            React.createElement("div", { style: { position: "relative" } },
-                React.createElement("input", {
-                    type: "text",
-                    placeholder: "Buscar por nombre o turno...",
-                    value: searchTerm,
-                    onChange: e => setSearchTerm(e.target.value),
-                    style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 280, color: C.navy }
-                }),
-                React.createElement("span", { style: { position: "absolute", left: 14, top: 11, fontSize: 16 } }, "🔍")
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("div", { style: { position: "relative" } },
+                    React.createElement("input", {
+                        type: "text",
+                        placeholder: "Buscar por nombre...",
+                        value: searchTerm,
+                        onChange: e => setSearchTerm(e.target.value),
+                        style: { padding: "10px 16px 10px 40px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, minWidth: 240, color: C.navy }
+                    }),
+                    React.createElement("span", { style: { position: "absolute", left: 14, top: 11, fontSize: 16 } }, "🔍")
+                ),
+                React.createElement("select", {
+                    value: areaFilter,
+                    onChange: e => setAreaFilter(e.target.value),
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                    areas.map(a => React.createElement("option", { key: a, value: a }, a))
+                ),
+                React.createElement("select", {
+                    value: turnoFilter,
+                    onChange: e => setTurnoFilter(e.target.value),
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                    turnos.map(t => React.createElement("option", { key: t, value: t }, t))
+                )
             )
         ),
 
@@ -4493,13 +4757,26 @@ function ViewGestorPersonal({ user, onBack }) {
                         turnos.map(t => React.createElement("option", { key: t, value: t }, t))
                     ),
                     React.createElement("button", {
-                        onClick: handleBulkUpdateTurno,
+                        onClick: () => handleBulkUpdate("turno", bulkTurno),
                         disabled: !bulkTurno,
                         style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.blue, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: bulkTurno ? 1 : 0.5 }
-                    }, "Aplicar"),
+                    }, "Aplicar Turno"),
+                    React.createElement("select", {
+                        value: bulkArea,
+                        onChange: e => setBulkArea(e.target.value),
+                        style: { padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: "#fff" }
+                    },
+                        React.createElement("option", { value: "" }, "Cambiar área..."),
+                        areas.map(a => React.createElement("option", { key: a, value: a }, a))
+                    ),
+                    React.createElement("button", {
+                        onClick: () => handleBulkUpdate("area", bulkArea),
+                        disabled: !bulkArea,
+                        style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.mid, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: bulkArea ? 1 : 0.5 }
+                    }, "Aplicar Área"),
                     React.createElement("button", {
                         onClick: handleBulkDelete,
-                        style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }
+                        style: { padding: "6px 12px", borderRadius: 6, border: "none", background: C.red, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: "auto" }
                     }, "Eliminar")
                 ),
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
@@ -4513,8 +4790,8 @@ function ViewGestorPersonal({ user, onBack }) {
                                     style: { cursor: "pointer", width: 16, height: 16 }
                                 })
                             ),
-                            ["Operador", "Turno", ""].map(h =>
-                                React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
+                            ["Operador", "Turno", "Área", ""].map(h =>
+                                React.createElement("th", { key: h, style: { padding: "14px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase", textAlign: h === "" ? "center" : "left" } }, h)
                             )
                         )
                     ),
@@ -4536,23 +4813,37 @@ function ViewGestorPersonal({ user, onBack }) {
                                                 (saving === s.normName) && React.createElement("span", { className: "animate-spin", style: { fontSize: 12 } }, "⏳"),
                                                 React.createElement("input", {
                                                     defaultValue: s.name,
-                                                    onBlur: e => e.target.value !== s.name && handleUpdateName(s.normName, e.target.value),
+                                                    onBlur: e => e.target.value !== s.name && handleUpdateFieldDirect(s.normName, "name", e.target.value),
                                                     style: { border: "none", background: "transparent", fontWeight: 800, color: C.navy, fontSize: 14, padding: "4px 0", width: "100%" }
                                                 })
                                             )
                                         ),
-                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                         React.createElement("td", { style: { padding: "14px 20px" } },
                                             React.createElement("select", {
                                                 value: s.turno || "",
-                                                onChange: e => handleUpdateTurnoDirect(s.normName, e.target.value),
+                                                onChange: e => handleUpdateFieldDirect(s.normName, "turno", e.target.value),
                                                 style: {
                                                     padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                                                    fontSize: 13, fontWeight: 700, color: s.turno ? C.navy : C.gray,
+                                                    fontSize: 13, fontWeight: 700, color: s.turno && s.turno !== "—" ? C.navy : C.gray,
                                                     background: "#fff", width: "100%", cursor: "pointer"
                                                 }
                                             },
-                                                React.createElement("option", { value: "" }, "Seleccionar..."),
+                                                React.createElement("option", { value: "" }, "Sin turno"),
                                                 turnos.map(t => React.createElement("option", { key: t, value: t }, t))
+                                            )
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 20px" } },
+                                            React.createElement("select", {
+                                                value: s.area || "",
+                                                onChange: e => handleUpdateFieldDirect(s.normName, "area", e.target.value),
+                                                style: {
+                                                    padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                                                    fontSize: 13, fontWeight: 700, color: s.area && s.area !== "—" ? C.navy : C.gray,
+                                                    background: "#fff", width: "100%", cursor: "pointer"
+                                                }
+                                            },
+                                                React.createElement("option", { value: "" }, "Sin área"),
+                                                areas.map(a => React.createElement("option", { key: a, value: a }, a))
                                             )
                                         ),
                                         React.createElement("td", { style: { padding: "14px 20px", textAlign: "center" } },
@@ -4572,49 +4863,24 @@ function ViewGestorPersonal({ user, onBack }) {
                 )
             ),
 
-            // Sidebar: Turnos
+            // Sidebar: Turnos y Áreas
             React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
-                React.createElement(Card, null,
-                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 16, fontSize: 14 } }, "📅 Turnos Activos"),
-                    groupCounts.length === 0 ? React.createElement("div", { style: { fontSize: 12, color: C.gray, textAlign: "center", padding: "10px 0" } }, "No hay turnos asignados") :
-                        React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-                            groupCounts.map(([g, c]) =>
-                                React.createElement("div", { key: g, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 } },
-                                    React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: C.mid } }, g),
-                                    React.createElement("span", { style: { background: C.mid, color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 800 } }, c)
-                                )
-                            )
-                        )
-                ),
-                React.createElement("div", { style: { padding: "12px 16px", background: "#fffbeb", borderRadius: 12, border: `1px solid #fef3c7`, color: "#92400e", fontSize: 12, lineHeight: 1.5 } },
-                    React.createElement("div", { style: { fontWeight: 900, marginBottom: 4 } }, "💡 Sugerencia"),
-                    "Edita los turnos disponibles en el panel de abajo. Los cambios se aplican a todos los operadores."
-                ),
-
                 // Configuración de Turnos
                 React.createElement(Card, { style: { padding: 16 } },
                     React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
                         React.createElement("div", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, "🔧 Configurar Turnos"),
                         editTurnos ? 
                             React.createElement("div", { style: { display: "flex", gap: 8 } },
-                                React.createElement("button", {
-                                    onClick: () => setEditTurnos(false),
-                                    style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray }
-                                }, "✕"),
-                                React.createElement("button", {
-                                    onClick: handleSaveTurnos,
-                                    style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 }
-                                }, "✓")
+                                React.createElement("button", { onClick: () => setEditTurnos(false), style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray } }, "✕"),
+                                React.createElement("button", { onClick: handleSaveTurnos, style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 } }, "✓")
                             ) :
-                            React.createElement("button", {
-                                onClick: () => { setTempTurnos(turnos.join("\n")); setEditTurnos(true); },
-                                style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 }
-                            }, "Editar")
+                            React.createElement("button", { onClick: () => { setTempTurnos(turnos.join("\n")); setEditTurnos(true); }, style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 } }, "Editar")
                     ),
                     editTurnos ?
                         React.createElement("textarea", {
                             value: tempTurnos,
                             onChange: e => setTempTurnos(e.target.value),
+                            placeholder: "Un turno por línea...",
                             style: { width: "100%", height: 100, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "monospace", resize: "none" }
                         }) :
                         React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
@@ -4622,12 +4888,35 @@ function ViewGestorPersonal({ user, onBack }) {
                         )
                 ),
 
-                // Importar Turnos desde CSV
+                // Configuración de Áreas
                 React.createElement(Card, { style: { padding: 16 } },
-                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 8, fontSize: 14 } }, "📥 Importar Turnos"),
-                    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 12 } }, "CSV con columnas: Nombre;Turno"),
-                    React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, background: C.blue, color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 } },
-                        saving === "bulk" ? "Procesando..." : "📤 Subir CSV",
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 } },
+                        React.createElement("div", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, "🏢 Configurar Áreas"),
+                        editAreas ? 
+                            React.createElement("div", { style: { display: "flex", gap: 8 } },
+                                React.createElement("button", { onClick: () => setEditAreas(false), style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.gray } }, "✕"),
+                                React.createElement("button", { onClick: handleSaveAreas, style: { background: C.green, border: "none", borderRadius: 4, cursor: "pointer", fontSize: 11, color: "#fff", padding: "2px 8px", fontWeight: 700 } }, "✓")
+                            ) :
+                            React.createElement("button", { onClick: () => { setTempAreas(areas.join("\n")); setEditAreas(true); }, style: { background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: C.blue, fontWeight: 700 } }, "Editar")
+                    ),
+                    editAreas ?
+                        React.createElement("textarea", {
+                            value: tempAreas,
+                            onChange: e => setTempAreas(e.target.value),
+                            placeholder: "Un área por línea...",
+                            style: { width: "100%", height: 100, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: "monospace", resize: "none" }
+                        }) :
+                        React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                            areas.map(a => React.createElement("span", { key: a, style: { background: C.mid, color: "#fff", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600 } }, a))
+                        )
+                ),
+
+                // Importar Personal desde CSV
+                React.createElement(Card, { style: { padding: 16 } },
+                    React.createElement("div", { style: { fontWeight: 900, color: C.navy, marginBottom: 8, fontSize: 14 } }, "📥 Importar CSV"),
+                    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 12 } }, "Format: Nombre;Turno;Area"),
+                    React.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, background: C.blue, color: "#fff", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12, justifyContent: "center" } },
+                        saving === "bulk" ? "⏳ Procesando..." : "📤 Subir CSV",
                         React.createElement("input", { type: "file", accept: ".csv", onChange: handleBulkUpload, style: { display: "none" } })
                     )
                 )
@@ -4830,9 +5119,7 @@ function App() {
         // TOPBAR
         React.createElement("div", { className: "no-print", style: { background: `linear-gradient(90deg, ${C.navy} 0%, ${C.blue} 100%)`, padding: "0 28px", display: "flex", alignItems: "center", gap: 0, height: 56, boxShadow: "0 2px 12px rgba(0,0,0,0.2)" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginRight: 32 } },
-                React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 48 } }),
-                React.createElement("div", null,
-                )
+                React.createElement("img", { src: "src/img/dirlogo.png", alt: "Logo", style: { height: 48 } })
             ),
             hasData && React.createElement("div", { style: { display: "flex", gap: 4, flex: 1 } },
                 navItems.filter(n => n.avail).map(n =>
