@@ -779,6 +779,7 @@ const DEFAULT_TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "
 const DEFAULT_AREAS = ["OPERACIONES", "DESPACHO", "CALIDAD", "ADMINISTRACION", "OTROS"];
 
 async function getConfigTurnos() {
+    await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_TURNOS;
     const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -787,6 +788,7 @@ async function getConfigTurnos() {
 }
 
 async function saveConfigTurnos(lista) {
+    await window.dbReady;
     const db = getDB();
     if (!db) return;
     const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -794,6 +796,7 @@ async function saveConfigTurnos(lista) {
 }
 
 async function getConfigAreas() {
+    await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_AREAS;
     const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -802,6 +805,7 @@ async function getConfigAreas() {
 }
 
 async function saveConfigAreas(lista) {
+    await window.dbReady;
     const db = getDB();
     if (!db) return;
     const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -809,26 +813,36 @@ async function saveConfigAreas(lista) {
 }
 
 async function updateStaffField(normName, field, value) {
-    const db = getDB();
-    if (!db || !normName) return;
-    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-    
-    // Guardar en documento principal asegurando que normName esté presente
-    await setDoc(doc(db, "staff", normName), { 
-        [field]: value,
-        normName: normName 
-    }, { merge: true });
-    
-    // Registrar en historial
-    await addDoc(collection(db, "staff_history"), {
-        normName,
-        field,
-        value,
-        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
-        year: new Date().getFullYear(),
-        timestamp: serverTimestamp()
-    });
-    return true;
+    if (!normName) { console.error("updateStaffField: normName missing"); return false; }
+    try {
+        // Esperar a que Firebase esté listo
+        await window.dbReady;
+        const db = getDB();
+        if (!db) { console.error("updateStaffField: db not available"); return false; }
+        
+        const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        
+        // Guardar en documento principal asegurando que normName esté presente
+        await setDoc(doc(db, "staff", normName), { 
+            [field]: value,
+            normName: normName 
+        }, { merge: true });
+        
+        // Registrar en historial
+        await addDoc(collection(db, "staff_history"), {
+            normName,
+            field,
+            value,
+            month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+            year: new Date().getFullYear(),
+            timestamp: serverTimestamp()
+        });
+        console.log("✓ updateStaffField: saved", { normName, field, value });
+        return true;
+    } catch (e) {
+        console.error("updateStaffField error:", e);
+        return false;
+    }
 }
 
 async function updateStaffTurno(normName, newTurno) {
@@ -870,6 +884,7 @@ async function saveOperatorPerformance(list, month, year) {
 }
 
 async function getStaffList() {
+    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -881,6 +896,7 @@ async function getStaffList() {
 }
 
 async function getOperatorPerformance(month, year) {
+    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -894,6 +910,7 @@ async function getOperatorPerformance(month, year) {
 }
 
 async function getOperatorHistory(normName, year) {
+    await window.dbReady;
     const db = getDB();
     if (!db || !normName) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -909,6 +926,7 @@ async function getOperatorHistory(normName, year) {
 }
 
 async function getStaffTurnoArea(normName, month, year) {
+    await window.dbReady;
     const db = getDB();
     if (!db || !normName) return { turno: null, area: null };
     const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -932,6 +950,7 @@ async function getStaffTurnoArea(normName, month, year) {
 }
 
 async function getUniqueOperators() {
+    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -4578,8 +4597,16 @@ function ViewGestorPersonal({ user, onBack }) {
 
     const handleUpdateFieldDirect = async (normName, field, value) => {
         setSaving(normName);
-        await updateStaffField(normName, field, value);
-        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
+        try {
+            const success = await updateStaffField(normName, field, value);
+            if (success !== false) {
+                setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
+            } else {
+                console.error("handleUpdateFieldDirect: update failed");
+            }
+        } catch (e) {
+            console.error("handleUpdateFieldDirect error:", e);
+        }
         setSaving(null);
     };
 
