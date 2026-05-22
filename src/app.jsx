@@ -348,7 +348,7 @@ function normalizeName(name) {
         .toUpperCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/,/g, "")
+        .replace(/\s*,\s*/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 }
@@ -820,24 +820,49 @@ async function updateStaffField(normName, field, value) {
         const db = getDB();
         if (!db) { console.error("updateStaffField: db not available"); return false; }
         
-        const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { doc, setDoc, collection, addDoc, getDocs, serverTimestamp, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
         
-        // Guardar en documento principal asegurando que normName esté presente
-        await setDoc(doc(db, "staff", normName), { 
-            [field]: value,
-            normName: normName 
-        }, { merge: true });
+        // Buscar si ya existe un documento staff con este mismo nombre (sin espacios)
+        const allStaffSnap = await getDocs(collection(db, "staff"));
+        const noSpacesTarget = normName.replace(/\s+/g, "");
+        let existingDoc = null;
+        for (const d of allStaffSnap.docs) {
+            const data = d.data();
+            const n = normalizeName(data.normName || data.name || d.id);
+            if (n && n.replace(/\s+/g, "") === noSpacesTarget && d.id !== normName) {
+                existingDoc = d;
+                break;
+            }
+        }
+        
+        let targetNormName = normName;
+        if (existingDoc) {
+            // Fusionar datos del documento existente con los nuevos
+            targetNormName = existingDoc.id;
+            const merged = { ...existingDoc.data(), [field]: value, normName: existingDoc.id };
+            await setDoc(doc(db, "staff", existingDoc.id), merged, { merge: true });
+            // Eliminar el documento con normName antiguo si existe
+            if (normName !== existingDoc.id) {
+                try { await deleteDoc(doc(db, "staff", normName)); } catch (e) { /* ignore */ }
+            }
+            console.log("✓ updateStaffField: merged with existing doc", { from: normName, to: targetNormName, field, value });
+        } else {
+            await setDoc(doc(db, "staff", targetNormName), { 
+                [field]: value,
+                normName: targetNormName 
+            }, { merge: true });
+            console.log("✓ updateStaffField: saved", { normName, field, value });
+        }
         
         // Registrar en historial
         await addDoc(collection(db, "staff_history"), {
-            normName,
+            normName: targetNormName,
             field,
             value,
             month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
             year: new Date().getFullYear(),
             timestamp: serverTimestamp()
         });
-        console.log("✓ updateStaffField: saved", { normName, field, value });
         return true;
     } catch (e) {
         console.error("updateStaffField error:", e);
@@ -1119,7 +1144,7 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
     }
 }
 
-async function getPerformanceByGroup(month, year, areaFilter = "all") {
+async function getPerformanceByGroup(month, year, areaFilter = "all", turnoFilter = "all") {
     const [perf, staff] = await Promise.all([
         getOperatorPerformance(month, year),
         getStaffList()
@@ -1131,8 +1156,8 @@ async function getPerformanceByGroup(month, year, areaFilter = "all") {
     const groups = {};
     perf.forEach(p => {
         const s = staffMap[p.normName] || {};
-        // Filtrar por Área si se solicita
         if (areaFilter !== "all" && s.area !== areaFilter) return;
+        if (turnoFilter !== "all" && s.turno !== turnoFilter) return;
 
         const group = s.turno || s.grupo || "Sin Turno";
         if (!groups[group]) {
@@ -3721,7 +3746,14 @@ function ViewComparativaGrupos({ user, onBack }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [areaFilter, setAreaFilter] = useState("all");
+    const [turnoFilter, setTurnoFilter] = useState("all");
     const [availableAreas, setAvailableAreas] = useState([]);
+    const [availableTurnos, setAvailableTurnos] = useState([]);
+    const [compareMode, setCompareMode] = useState(false);
+    const [compareTurno, setCompareTurno] = useState("all");
+    const [compareMonth, setCompareMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
+    const [compareYear, setCompareYear] = useState(new Date().getFullYear().toString());
+    const [compareData, setCompareData] = useState(null);
     const [filter, setFilter] = useState({
         month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
         year: new Date().getFullYear().toString()
@@ -3729,89 +3761,181 @@ function ViewComparativaGrupos({ user, onBack }) {
 
     const loadData = async () => {
         setLoading(true);
-        const [res, areas] = await Promise.all([
-            getPerformanceByGroup(filter.month, filter.year, areaFilter),
-            getConfigAreas()
+        const [res, areas, turnos] = await Promise.all([
+            getPerformanceByGroup(filter.month, filter.year, areaFilter, turnoFilter),
+            getConfigAreas(),
+            getConfigTurnos()
         ]);
         setData(res);
         setAvailableAreas(areas);
+        setAvailableTurnos(turnos);
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [filter, areaFilter]);
+    useEffect(() => { loadData(); }, [filter, areaFilter, turnoFilter]);
+
+    const loadCompareData = async () => {
+        if (!compareMode) return;
+        setLoading(true);
+        const comp = await getPerformanceByGroup(compareMonth, compareYear, areaFilter, compareTurno);
+        setCompareData(comp);
+        setLoading(false);
+    };
+
+    useEffect(() => { loadCompareData(); }, [compareMode, compareMonth, compareYear, areaFilter, compareTurno]);
 
     const stats = useMemo(() => {
         if (!data.length) return null;
         const totalC = data.reduce((s, g) => s + g.c, 0);
+        const totalO = data.reduce((s, g) => s + g.o, 0);
+        const totalAb = data.reduce((s, g) => s + g.ab, 0);
         const bestAb = [...data].sort((a, b) => a.pctAb - b.pctAb)[0];
         const bestProd = [...data].sort((a, b) => (b.c / (b.ops || 1)) - (a.c / (a.ops || 1)))[0];
-        return { totalC, bestAb, bestProd };
+        return { totalC, totalO, totalAb, bestAb, bestProd, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
     }, [data]);
 
+    const compareStats = useMemo(() => {
+        if (!compareData || !compareData.length) return null;
+        const totalC = compareData.reduce((s, g) => s + g.c, 0);
+        const totalO = compareData.reduce((s, g) => s + g.o, 0);
+        const totalAb = compareData.reduce((s, g) => s + g.ab, 0);
+        return { totalC, totalO, totalAb, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
+    }, [compareData]);
+
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
     return React.createElement("div", { className: "animate-fade" },
-        // Header
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Análisis de Operadores"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Desempeño individual y evolución mensual")
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📊 Dashboard por Turnos"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Sumas mensuales y comparativas por turno/área")
                 )
             ),
-            React.createElement("div", { style: { display: "flex", gap: 12 } },
-                React.createElement("select", {
-                    value: areaFilter,
-                    onChange: e => setAreaFilter(e.target.value),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-                },
-                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
-                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
-                ),
-                React.createElement("select", {
-                    value: areaFilter,
-                    onChange: e => setAreaFilter(e.target.value),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-                },
-                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
-                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
-                ),
-                React.createElement("select", {
-                    value: filter.month,
-                    onChange: e => setFilter({ ...filter, month: e.target.value }),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-                },
-                    ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(m =>
-                        React.createElement("option", { key: m, value: m }, m)
-                    )
-                ),
-                React.createElement("select", {
-                    value: filter.year,
-                    onChange: e => setFilter({ ...filter, year: e.target.value }),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-                },
-                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
-                )
+            React.createElement("button", {
+                onClick: () => setCompareMode(!compareMode),
+                style: { padding: "10px 20px", borderRadius: 8, border: `1.5px solid ${compareMode ? C.blue : C.border}`, background: compareMode ? C.blue : "#fff", color: compareMode ? "#fff" : C.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }
+            }, compareMode ? "✕ Cerrar Comparativa" : "🔄 Comparar Periodos")
+        ),
+
+        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" } },
+            React.createElement("select", {
+                value: areaFilter,
+                onChange: e => setAreaFilter(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+            ),
+            React.createElement("select", {
+                value: turnoFilter,
+                onChange: e => setTurnoFilter(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
+            ),
+            React.createElement("select", {
+                value: filter.month,
+                onChange: e => setFilter({ ...filter, month: e.target.value }),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+            },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", {
+                value: filter.year,
+                onChange: e => setFilter({ ...filter, year: e.target.value }),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+            },
+                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
             )
         ),
 
-        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando comparativa…") :
+        compareMode && React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, padding: "16px 20px", background: C.light, borderRadius: 12, border: `1.5px solid ${C.mid}` } },
+            React.createElement("div", { style: { fontWeight: 700, color: C.navy, fontSize: 13, alignSelf: "center" } }, "Comparar con:"),
+            React.createElement("select", {
+                value: compareTurno,
+                onChange: e => setCompareTurno(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
+            ),
+            React.createElement("select", {
+                value: compareMonth,
+                onChange: e => setCompareMonth(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", {
+                value: compareYear,
+                onChange: e => setCompareYear(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+            )
+        ),
+
+        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando…") :
             data.length === 0 ? React.createElement("div", { style: { textAlign: "center", padding: 40, background: "#fff", borderRadius: 12, color: C.gray } }, "No hay datos para este periodo.") :
                 React.createElement(React.Fragment, null,
-                    // KPI Cards
-                    stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
-                        React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
-                        React.createElement(StatKpi, { label: "Grupo Menor Abandono", value: stats.bestAb.group, sub: `${stats.bestAb.pctAb.toFixed(1)}% de tasa`, accent: C.green }),
-                        React.createElement(StatKpi, { label: "Grupo Más Productivo", value: stats.bestProd.group, sub: `${(stats.bestProd.c / (stats.bestProd.ops || 1)).toFixed(0)} llam./op`, accent: C.mid })
+                    React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" } },
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas`, value: (stats?.totalC || 0).toLocaleString(), accent: C.green }),
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Ofrecidas`, value: (stats?.totalO || 0).toLocaleString(), accent: C.blue }),
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Abandono`, value: `${stats?.pctAb.toFixed(1)}%`, accent: stats?.pctAb > 15 ? C.red : stats?.pctAb > 8 ? C.orange : C.green }),
+                        compareStats && React.createElement(React.Fragment, null,
+                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas`, value: (compareStats.totalC || 0).toLocaleString(), accent: C.green, sub: "vs " + (stats && compareStats.totalC !== 0 ? ((stats.totalC / compareStats.totalC - 1) * 100).toFixed(1) + "%" : "—") }),
+                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Abandono`, value: `${compareStats.pctAb.toFixed(1)}%`, accent: compareStats.pctAb > 15 ? C.red : compareStats.pctAb > 8 ? C.orange : C.green })
+                        )
                     ),
 
-                    // Charts Grid
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
-                        // Chart 1: Abandono
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
                         React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📉 Tasa de Abandono por Grupo (%)"),
-                            React.createElement("div", { style: { height: 260 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
                                 React.createElement(ChartBar, {
-                                    id: "chart-group-abandon",
+                                    id: "chart-contestadas-turno",
+                                    data: {
+                                        labels: data.map(g => g.group),
+                                        datasets: [{
+                                            label: "Contestadas",
+                                            data: data.map(g => g.c),
+                                            backgroundColor: data.map(g => C.mid),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        ),
+                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-contestadas-compare",
+                                    data: {
+                                        labels: compareData.map(g => g.group),
+                                        datasets: [{
+                                            label: "Contestadas",
+                                            data: compareData.map(g => g.c),
+                                            backgroundColor: compareData.map(g => C.orange),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        )
+                    ),
+
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
+                        React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - % Abandono por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-abandono-turno",
                                     data: {
                                         labels: data.map(g => g.group),
                                         datasets: [{
@@ -3821,10 +3945,105 @@ function ViewComparativaGrupos({ user, onBack }) {
                                             borderRadius: 6
                                         }]
                                     },
-                                    options: {
-                                        responsive: true, maintainAspectRatio: false,
-                                        scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }
-                                    }
+                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        ),
+                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - % Abandono por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-abandono-compare",
+                                    data: {
+                                        labels: compareData.map(g => g.group),
+                                        datasets: [{
+                                            label: "% Abandono",
+                                            data: compareData.map(g => g.pctAb.toFixed(1)),
+                                            backgroundColor: compareData.map(g => g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        )
+                    ),
+
+                    React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginBottom: 24 } },
+                        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+                            React.createElement("thead", null,
+                                React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
+                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO (s)", "Avisando (s)"].map(h =>
+                                        React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
+                                    )
+                                )
+                            ),
+                            React.createElement("tbody", null,
+                                data.map((g, i) => {
+                                    const compG = compareData && compareData.find(c => c.group === g.group);
+                                    const diffC = compG ? g.c - compG.c : null;
+                                    const diffAb = compG ? g.pctAb - compG.pctAb : null;
+                                    return React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
+                                        React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } },
+                                            g.c.toLocaleString(),
+                                            diffC !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffC >= 0 ? C.green : C.red } }, `(${diffC >= 0 ? "+" : ""}${diffC})`)
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
+                                            React.createElement(Badge, {
+                                                label: `${g.pctAb.toFixed(1)}%`,
+                                                color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
+                                                bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
+                                            }),
+                                            diffAb !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffAb <= 0 ? C.green : C.red } }, `(${diffAb >= 0 ? "+" : ""}${diffAb.toFixed(1)}%)`)
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
+                                    );
+                                })
+                            )
+                        )
+                    ),
+
+                    stats && stats.bestAb && React.createElement(Card, { style: { padding: 20, marginBottom: 24 } },
+                        React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 12 } }, "🏆 Resumen por Turno"),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200, 1fr))", gap: 16 } },
+                            data.map(g => {
+                                const compG = compareData && compareData.find(c => c.group === g.group);
+                                return React.createElement("div", { key: g.group, style: { padding: 16, background: "#f8fafc", borderRadius: 10, border: `1px solid ${C.border}` } },
+                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 15, color: C.navy, marginBottom: 8 } }, g.group),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "Contestadas:"),
+                                        React.createElement("span", { style: { fontWeight: 700, color: C.green } }, g.c.toLocaleString())
+                                    ),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "% Abandono:"),
+                                        React.createElement("span", { style: { fontWeight: 700, color: g.pctAb > 15 ? C.red : C.green } }, `${g.pctAb.toFixed(1)}%`)
+                                    ),
+                                    compG && React.createElement(React.Fragment, null,
+                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 } },
+                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. contest:"),
+                                            React.createElement("span", { style: { fontWeight: 600, color: g.c - compG.c >= 0 ? C.green : C.red } }, `${g.c - compG.c >= 0 ? "+" : ""}${g.c - compG.c}`)
+                                        ),
+                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11 } },
+                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. aban:"),
+                                            React.createElement("span", { style: { fontWeight: 600, color: g.pctAb - compG.pctAb <= 0 ? C.green : C.red } }, `${(g.pctAb - compG.pctAb) >= 0 ? "+" : ""}${(g.pctAb - compG.pctAb).toFixed(1)}%`)
+                                        )
+                                    ),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "TMO:"),
+                                        React.createElement("span", { style: { fontWeight: 600 } }, fmtSeconds(g.avgManejo))
+                                    )
+                                );
+                            })
+                        )
+                    )
+                )
+    );
+}
                                 })
                             )
                         ),
@@ -4544,35 +4763,80 @@ function ViewGestorPersonal({ user, onBack }) {
             setTurnos(tList);
             setAreas(aList);
 
-            // Usar un Map con nombres normalizados para evitar duplicados y discrepancias
-            const masterMap = new Map();
-
-            // 1. Cargar personal ya registrado
+            // 1. Cargar personal ya registrado normalizando el ID
+            const rawMap = new Map();
             registered.forEach(s => {
                 const id = normalizeName(s.normName || s.name);
-                if (id) masterMap.set(id, { ...s, normName: id });
+                if (id) {
+                    // Si ya existe, conservar el que tenga más datos (turno, area etc.)
+                    const existing = rawMap.get(id);
+                    if (existing && !existing.turno && s.turno) {
+                        rawMap.set(id, { ...existing, ...s, normName: id });
+                    } else if (!existing) {
+                        rawMap.set(id, { ...s, normName: id });
+                    }
+                }
             });
 
-            // 2. Cargar operadores con desempeño que NO estén en personal
+            // 2. Buscar duplicados: personas cuyo normName esté contenido en otro
+            //    (ej: "ABALOSJOAQUIN" contenido en "ABALOS JOAQUIN")
+            const uniqueKeys = new Set(rawMap.keys());
+            for (const k of uniqueKeys) {
+                if (!rawMap.has(k)) continue;
+                for (const other of uniqueKeys) {
+                    if (k === other || !rawMap.has(other)) continue;
+                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
+                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
+                    // Si un nombre está contenido dentro del otro, fusionar
+                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
+                        const best = name1.length >= name2.length ? k : other;
+                        const worst = name1.length >= name2.length ? other : k;
+                        rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
+                        rawMap.delete(worst);
+                    }
+                }
+            }
+
+            // 3. Cargar operadores con desempeño que NO estén en personal
             performance.forEach(op => {
                 const id = normalizeName(op.normName || op.name);
-                if (id && !masterMap.has(id)) {
-                    masterMap.set(id, { 
+                if (id && !rawMap.has(id)) {
+                    rawMap.set(id, { 
                         ...op, 
                         normName: id,
                         turno: "—", 
                         area: "—" 
                     });
-                } else if (id && masterMap.has(id)) {
-                    // Si ya existe, nos aseguramos de que el nombre sea el más legible
-                    const existing = masterMap.get(id);
+                } else if (id && rawMap.has(id)) {
+                    const existing = rawMap.get(id);
                     if (!existing.name && op.name) {
-                        masterMap.set(id, { ...existing, name: op.name });
+                        rawMap.set(id, { ...existing, name: op.name });
+                    } else if (!existing.turno && op.turno) {
+                        rawMap.set(id, { ...existing, turno: op.turno });
+                    } else if (!existing.area && op.area) {
+                        rawMap.set(id, { ...existing, area: op.area });
                     }
                 }
             });
 
-            setStaff(Array.from(masterMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            // 4. Revisar de nuevo con los de performance
+            for (const k of [...rawMap.keys()]) {
+                for (const other of [...rawMap.keys()]) {
+                    if (k === other) continue;
+                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
+                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
+                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
+                        const best = name1.length >= name2.length ? k : other;
+                        const worst = name1.length >= name2.length ? other : k;
+                        if (rawMap.has(worst)) {
+                            rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
+                            rawMap.delete(worst);
+                        }
+                    }
+                }
+            }
+
+            setStaff(Array.from(rawMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         } catch (e) {
             console.error("Error loading staff grid:", e);
         }
@@ -4600,7 +4864,19 @@ function ViewGestorPersonal({ user, onBack }) {
         try {
             const success = await updateStaffField(normName, field, value);
             if (success !== false) {
-                setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
+                setStaff(prev => {
+                    // Buscar por normName exacto, luego por coincidencia de nombre
+                    let found = prev.find(s => s.normName === normName);
+                    if (!found) {
+                        const noSpaces = normName.replace(/\s+/g, "");
+                        found = prev.find(s => (s.name || "").replace(/\s+/g, "").toUpperCase() === noSpaces);
+                    }
+                    if (found) {
+                        return prev.map(s => s === found ? { ...s, [field]: value } : s);
+                    }
+                    // Si no encontramos, actualizar por normName igual
+                    return prev.map(s => s.normName === normName ? { ...s, [field]: value } : s);
+                });
             } else {
                 console.error("handleUpdateFieldDirect: update failed");
             }
