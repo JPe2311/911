@@ -4044,66 +4044,7 @@ function ViewComparativaGrupos({ user, onBack }) {
                 )
     );
 }
-                                })
-                            )
-                        ),
-                        // Chart 2: TMO (Manejo)
-                        React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "⏱ Tiempo de Manejo Promedio"),
-                            React.createElement("div", { style: { height: 260 } },
-                                React.createElement(ChartBar, {
-                                    id: "chart-group-tmo",
-                                    data: {
-                                        labels: data.map(g => g.group),
-                                        datasets: [{
-                                            label: "Segundos",
-                                            data: data.map(g => g.avgManejo),
-                                            backgroundColor: C.mid,
-                                            borderRadius: 6
-                                        }]
-                                    },
-                                    options: {
-                                        responsive: true, maintainAspectRatio: false,
-                                        plugins: { tooltip: { callbacks: { label: ctx => fmtSeconds(ctx.raw) } } }
-                                    }
-                                })
-                            )
-                        )
-                    ),
 
-                    // Detailed Table
-                    React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
-                        React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
-                            React.createElement("thead", null,
-                                React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
-                                        React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
-                                    )
-                                )
-                            ),
-                            React.createElement("tbody", null,
-                                data.map((g, i) => React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
-                                    React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } }, g.c.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
-                                        React.createElement(Badge, {
-                                            label: `${g.pctAb.toFixed(1)}%`,
-                                            color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
-                                            bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
-                                        })
-                                    ),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
-                                ))
-                            )
-                        )
-                    )
-                )
-    );
-}
 
 
 // ════════════════════════════════════════════════════════════════════════════
