@@ -348,7 +348,7 @@ function normalizeName(name) {
         .toUpperCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s*,\s*/g, " ")
+        .replace(/,/g, "")
         .replace(/\s+/g, " ")
         .trim();
 }
@@ -779,7 +779,6 @@ const DEFAULT_TURNOS = ["Turno 1", "Turno 2", "Turno 3", "Turno 4", "Turno 5", "
 const DEFAULT_AREAS = ["OPERACIONES", "DESPACHO", "CALIDAD", "ADMINISTRACION", "OTROS"];
 
 async function getConfigTurnos() {
-    await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_TURNOS;
     const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -788,7 +787,6 @@ async function getConfigTurnos() {
 }
 
 async function saveConfigTurnos(lista) {
-    await window.dbReady;
     const db = getDB();
     if (!db) return;
     const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -796,7 +794,6 @@ async function saveConfigTurnos(lista) {
 }
 
 async function getConfigAreas() {
-    await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_AREAS;
     const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -805,7 +802,6 @@ async function getConfigAreas() {
 }
 
 async function saveConfigAreas(lista) {
-    await window.dbReady;
     const db = getDB();
     if (!db) return;
     const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -813,61 +809,26 @@ async function saveConfigAreas(lista) {
 }
 
 async function updateStaffField(normName, field, value) {
-    if (!normName) { console.error("updateStaffField: normName missing"); return false; }
-    try {
-        // Esperar a que Firebase esté listo
-        await window.dbReady;
-        const db = getDB();
-        if (!db) { console.error("updateStaffField: db not available"); return false; }
-        
-        const { doc, setDoc, collection, addDoc, getDocs, serverTimestamp, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        
-        // Buscar si ya existe un documento staff con este mismo nombre (sin espacios)
-        const allStaffSnap = await getDocs(collection(db, "staff"));
-        const noSpacesTarget = normName.replace(/\s+/g, "");
-        let existingDoc = null;
-        for (const d of allStaffSnap.docs) {
-            const data = d.data();
-            const n = normalizeName(data.normName || data.name || d.id);
-            if (n && n.replace(/\s+/g, "") === noSpacesTarget && d.id !== normName) {
-                existingDoc = d;
-                break;
-            }
-        }
-        
-        let targetNormName = normName;
-        if (existingDoc) {
-            // Fusionar datos del documento existente con los nuevos
-            targetNormName = existingDoc.id;
-            const merged = { ...existingDoc.data(), [field]: value, normName: existingDoc.id };
-            await setDoc(doc(db, "staff", existingDoc.id), merged, { merge: true });
-            // Eliminar el documento con normName antiguo si existe
-            if (normName !== existingDoc.id) {
-                try { await deleteDoc(doc(db, "staff", normName)); } catch (e) { /* ignore */ }
-            }
-            console.log("✓ updateStaffField: merged with existing doc", { from: normName, to: targetNormName, field, value });
-        } else {
-            await setDoc(doc(db, "staff", targetNormName), { 
-                [field]: value,
-                normName: targetNormName 
-            }, { merge: true });
-            console.log("✓ updateStaffField: saved", { normName, field, value });
-        }
-        
-        // Registrar en historial
-        await addDoc(collection(db, "staff_history"), {
-            normName: targetNormName,
-            field,
-            value,
-            month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
-            year: new Date().getFullYear(),
-            timestamp: serverTimestamp()
-        });
-        return true;
-    } catch (e) {
-        console.error("updateStaffField error:", e);
-        return false;
-    }
+    const db = getDB();
+    if (!db || !normName) return;
+    const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    
+    // Guardar en documento principal asegurando que normName esté presente
+    await setDoc(doc(db, "staff", normName), { 
+        [field]: value,
+        normName: normName 
+    }, { merge: true });
+    
+    // Registrar en historial
+    await addDoc(collection(db, "staff_history"), {
+        normName,
+        field,
+        value,
+        month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
+        year: new Date().getFullYear(),
+        timestamp: serverTimestamp()
+    });
+    return true;
 }
 
 async function updateStaffTurno(normName, newTurno) {
@@ -909,7 +870,6 @@ async function saveOperatorPerformance(list, month, year) {
 }
 
 async function getStaffList() {
-    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -921,7 +881,6 @@ async function getStaffList() {
 }
 
 async function getOperatorPerformance(month, year) {
-    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -935,7 +894,6 @@ async function getOperatorPerformance(month, year) {
 }
 
 async function getOperatorHistory(normName, year) {
-    await window.dbReady;
     const db = getDB();
     if (!db || !normName) return [];
     const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -951,7 +909,6 @@ async function getOperatorHistory(normName, year) {
 }
 
 async function getStaffTurnoArea(normName, month, year) {
-    await window.dbReady;
     const db = getDB();
     if (!db || !normName) return { turno: null, area: null };
     const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -975,7 +932,6 @@ async function getStaffTurnoArea(normName, month, year) {
 }
 
 async function getUniqueOperators() {
-    await window.dbReady;
     const db = getDB();
     if (!db) return [];
     const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
@@ -1144,7 +1100,7 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
     }
 }
 
-async function getPerformanceByGroup(month, year, areaFilter = "all", turnoFilter = "all") {
+async function getPerformanceByGroup(month, year, areaFilter = "all") {
     const [perf, staff] = await Promise.all([
         getOperatorPerformance(month, year),
         getStaffList()
@@ -1156,8 +1112,8 @@ async function getPerformanceByGroup(month, year, areaFilter = "all", turnoFilte
     const groups = {};
     perf.forEach(p => {
         const s = staffMap[p.normName] || {};
+        // Filtrar por Área si se solicita
         if (areaFilter !== "all" && s.area !== areaFilter) return;
-        if (turnoFilter !== "all" && s.turno !== turnoFilter) return;
 
         const group = s.turno || s.grupo || "Sin Turno";
         if (!groups[group]) {
@@ -2532,7 +2488,6 @@ function ViewMensual({ user, onBack }) {
     const [filterYear, setFilterYear] = useState("all");
     const [filterMonth, setFilterMonth] = useState("all");
     const [filterTurno, setFilterTurno] = useState("all"); // "all" | "dia" | "noche"
-    const [viewMode, setViewMode] = useState("mensual"); // "mensual" | "trimestral" | "anual"
     const [selectedMonths, setSelectedMonths] = useState([]);
 
 
@@ -2743,11 +2698,7 @@ function ViewMensual({ user, onBack }) {
     // ──── KPI aggregate ──────────────────────────────────────────────────────
     const kpis = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => {
-                const q = Math.ceil(h.meta.monthNum / 3);
-                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
-                return selectedMonths.includes(pId);
-            })
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
             : filteredHistory;
         let tO = 0, tC = 0, tA = 0, tEC = 0, tAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
         target.forEach(h => {
@@ -2774,93 +2725,55 @@ function ViewMensual({ user, onBack }) {
         const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
         const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
         return { tO, tC, tA, tEC, tAV, pctAt, pctAb, avgManejo, avgAvisando, totalManejo: mSum, totalAvisando: avSum, count: target.length };
-    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
 
-    // ──── Period Comparison KPIs (per-month/quarter/year with deltas) ────────
+    // ──── Monthly Comparison KPIs (per-month with deltas) ────────────────────
     const monthlyCompData = useMemo(() => {
         if (filteredHistory.length === 0) return null;
         const target = selectedMonths.length > 0
-            ? history.filter(h => {
-                const q = Math.ceil(h.meta.monthNum / 3);
-                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
-                return selectedMonths.includes(pId);
-            })
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
             : filteredHistory;
         if (target.length === 0) return null;
 
-        // Grouping
-        const groups = {};
-        target.forEach(h => {
-            if (!h) return;
-            const q = Math.ceil(h.meta.monthNum / 3);
-            let pId, label, sortKey;
-            if (viewMode === "mensual") {
-                pId = h.firestoreId;
-                label = h.meta.label;
-                sortKey = h.meta.year * 100 + h.meta.monthNum;
-            } else if (viewMode === "trimestral") {
-                pId = `Q${q}-${h.meta.year}`;
-                label = `Q${q} ${h.meta.year}`;
-                sortKey = h.meta.year * 10 + q;
-            } else {
-                pId = `Y${h.meta.year}`;
-                label = `Año ${h.meta.year}`;
-                sortKey = h.meta.year;
-            }
-            
-            if (!groups[pId]) {
-                groups[pId] = { pId, label, sortKey, items: [] };
-            }
-            groups[pId].items.push(h);
-        });
+        const sorted = [...target].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
 
-        const sortedGroups = Object.values(groups).sort((a, b) => a.sortKey - b.sortKey);
-
-        const periodStats = sortedGroups.map(g => {
+        const monthStats = sorted.map(h => {
+            if (!h) return null;
+            const rows = filterDetailsByTurno(h.detalles, filterTurno);
             let rO = 0, rC = 0, rA = 0, rEC = 0, rAV = 0, mSum = 0, mCnt = 0, avSum = 0, avCnt = 0;
-            let totalUniqueDays = 0;
-
-            g.items.forEach(h => {
-                const rows = filterDetailsByTurno(h.detalles, filterTurno);
-                if (rows && rows.length) {
-                    rows.forEach(r => {
-                        if (!r) return;
-                        rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
-                        rEC += r.ec || 0; rAV += r.av || 0;
-                        if (r.manejo) { mSum += r.manejo; mCnt++; }
-                        if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
-                    });
-                    totalUniqueDays += new Set(rows.map(r => r.d)).size;
-                } else if (h.resumen) {
-                    rO += h.resumen.totalOfrecidas || 0; 
-                    rC += h.resumen.totalContestadas || 0; 
-                    rA += h.resumen.totalAbandonadas || 0;
-                    totalUniqueDays += 30; // fallback if no details
-                }
-            });
-
+            if (rows && rows.length) {
+                rows.forEach(r => {
+                    if (!r) return;
+                    rO += r.o || 0; rC += r.c || 0; rA += r.ab || 0;
+                    rEC += r.ec || 0; rAV += r.av || 0;
+                    if (r.manejo) { mSum += r.manejo; mCnt++; }
+                    if (r.avisandoSec) { avSum += r.avisandoSec; avCnt++; }
+                });
+            } else if (h.resumen) {
+                rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
+            }
             const pctAb = rO ? (rA / rO * 100) : 0;
             const pctAt = rO ? (rC / rO * 100) : 0;
             const avgManejo = mCnt ? Math.round(mSum / mCnt) : 0;
             const avgAvisando = avCnt ? Math.round(avSum / avCnt) : 0;
-            const promDiario = totalUniqueDays ? Math.round(rO / totalUniqueDays) : 0;
-            const promAbandDiario = totalUniqueDays ? Math.round(rA / totalUniqueDays) : 0;
-
+            const uniqueDays = rows && rows.length ? new Set(rows.map(r => r.d)).size : 1;
+            const promDiario = uniqueDays ? Math.round(rO / uniqueDays) : 0;
+            const promAbandDiario = uniqueDays ? Math.round(rA / uniqueDays) : 0;
             return {
-                label: g.label, firestoreId: g.pId,
+                label: h.meta.label, monthNum: h.meta.monthNum, year: h.meta.year,
+                firestoreId: h.firestoreId,
                 ofrecidas: rO, contestadas: rC, abandonadas: rA,
                 enCola: rEC, avisando: rAV,
                 pctAb, pctAt, avgManejo, avgAvisando,
                 totalManejo: mSum, totalAvisando: avSum,
-                promDiario, promAbandDiario, uniqueDays: totalUniqueDays,
-                items: g.items
+                promDiario, promAbandDiario, uniqueDays
             };
         });
 
-        // Calculate deltas (vs previous period)
-        const withDeltas = periodStats.map((cur, i) => {
+        // Calculate deltas (vs previous month)
+        const withDeltas = monthStats.map((cur, i) => {
             if (i === 0) return { ...cur, deltas: null };
-            const prev = periodStats[i - 1];
+            const prev = monthStats[i - 1];
             const delta = (curVal, prevVal) => prevVal !== 0 ? ((curVal - prevVal) / prevVal * 100) : (curVal > 0 ? 100 : 0);
             return {
                 ...cur,
@@ -2868,7 +2781,7 @@ function ViewMensual({ user, onBack }) {
                     ofrecidas: delta(cur.ofrecidas, prev.ofrecidas),
                     contestadas: delta(cur.contestadas, prev.contestadas),
                     abandonadas: delta(cur.abandonadas, prev.abandonadas),
-                    pctAb: cur.pctAb - prev.pctAb,
+                    pctAb: cur.pctAb - prev.pctAb,  // Simple difference for percentage points
                     pctAt: cur.pctAt - prev.pctAt,
                     avgManejo: cur.avgManejo - prev.avgManejo,
                     totalManejo: delta(cur.totalManejo, prev.totalManejo),
@@ -2878,44 +2791,40 @@ function ViewMensual({ user, onBack }) {
         });
 
         return withDeltas;
-    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
+
+        return withDeltas;
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
 
     // ──── Chart: Comparison bar ──────────────────────────────────────────────
     const compChart = useMemo(() => {
-        if (!monthlyCompData || monthlyCompData.length === 0) return null;
+        if (filteredHistory.length === 0) return null;
+        const data = selectedMonths.length > 0
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
+            : filteredHistory;
+        if (data.length === 0) return null;
+        const sorted = [...data].sort((a, b) => (a.meta.year * 100 + a.meta.monthNum) - (b.meta.year * 100 + b.meta.monthNum));
         return {
-            labels: monthlyCompData.map(s => s.label || "—"),
+            labels: sorted.map(s => s.meta?.label || "—"),
             datasets: [
-                { label: "Ofrecidas", data: monthlyCompData.map(s => s.ofrecidas), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
-                { label: "Contestadas", data: monthlyCompData.map(s => s.contestadas), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
-                { label: "Abandonadas", data: monthlyCompData.map(s => s.abandonadas), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
+                { label: "Ofrecidas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.o || 0), 0) : (s.resumen?.totalOfrecidas || 0); }), backgroundColor: "rgba(46,95,163,0.85)", borderRadius: 6 },
+                { label: "Contestadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.c || 0), 0) : (s.resumen?.totalContestadas || 0); }), backgroundColor: "rgba(22,163,74,0.8)", borderRadius: 6 },
+                { label: "Abandonadas", data: sorted.map(s => { const rows = filterDetailsByTurno(s.detalles, filterTurno); return rows?.length ? rows.reduce((sum, r) => sum + (r?.ab || 0), 0) : (s.resumen?.totalAbandonadas || 0); }), backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 6 }
             ]
         };
-    }, [monthlyCompData]);
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
 
     // ──── Chart: Daily trend (single month) ──────────────────────────────────
     const dailyChart = useMemo(() => {
-        const target = selectedMonths.length > 0
-            ? history.filter(h => {
-                const q = Math.ceil(h.meta.monthNum / 3);
-                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
-                return selectedMonths.includes(pId);
-            })
-            : filteredHistory;
-        if (!target.length) return null;
-        const single = target[0]; // If multiple months are grouped, this chart will aggregate all days 1..31 across them
-        // Actually, let's aggregate ALL targets so if Q1 is selected, day 1 is sum of Jan 1 + Feb 1 + Mar 1.
-        // Wait, if it's just "single month" trend, let's use all targets.
-        // The previous code used `selectedMonths.length === 1 ? ...`. We will now map over all elements in `target`.
+        const single = selectedMonths.length === 1
+            ? history.find(h => h.firestoreId === selectedMonths[0])
+            : (filteredHistory.length === 1 ? filteredHistory[0] : null);
+        if (!single || !single.detalles) return null;
+        const rows = filterDetailsByTurno(single.detalles, filterTurno);
         const byDay = {};
-        target.forEach(h => {
-            const rows = filterDetailsByTurno(h.detalles, filterTurno);
-            if (!rows) return;
-            rows.forEach(r => {
-                if (!r || r.d === undefined) return;
-                if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
-                byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
-            });
+        rows.forEach(r => {
+            if (!r || r.d === undefined) return;
+            if (!byDay[r.d]) byDay[r.d] = { o: 0, c: 0, ab: 0 };
+            byDay[r.d].o += r.o || 0; byDay[r.d].c += r.c || 0; byDay[r.d].ab += r.ab || 0;
         });
         const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
         return {
@@ -2926,16 +2835,12 @@ function ViewMensual({ user, onBack }) {
                 { label: "Abandonadas", data: days.map(d => byDay[d].ab), borderColor: C.red, backgroundColor: "rgba(220,38,38,0.06)", fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: C.red, borderWidth: 2 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
 
     // ──── Chart: Hourly distribution ─────────────────────────────────────────
     const hourlyChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => {
-                const q = Math.ceil(h.meta.monthNum / 3);
-                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
-                return selectedMonths.includes(pId);
-            })
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
             : filteredHistory;
         if (!target.length) return null;
         const byHour = {};
@@ -2963,16 +2868,12 @@ function ViewMensual({ user, onBack }) {
                 { label: "Prom. Abandonadas/día", data: hours.map(h => Math.round(byHour[h].ab / divisor)), backgroundColor: "rgba(220,38,38,0.6)", borderRadius: 5 }
             ]
         };
-    }, [filteredHistory, selectedMonths, filterTurno, history, viewMode]);
+    }, [filteredHistory, selectedMonths, filterTurno, history]);
 
     // ──── Chart: Day of Week distribution ────────────────────────────────────
     const weekDayChart = useMemo(() => {
         const target = selectedMonths.length > 0
-            ? history.filter(h => {
-                const q = Math.ceil(h.meta.monthNum / 3);
-                const pId = viewMode === "mensual" ? h.firestoreId : viewMode === "trimestral" ? `Q${q}-${h.meta.year}` : `Y${h.meta.year}`;
-                return selectedMonths.includes(pId);
-            })
+            ? history.filter(h => selectedMonths.includes(h.firestoreId))
             : filteredHistory;
         if (!target.length) return null;
 
@@ -3122,25 +3023,6 @@ function ViewMensual({ user, onBack }) {
         history.length > 0 && React.createElement(Card, { style: { marginBottom: 20, padding: "16px 24px" } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" } },
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 13, color: C.navy, display: "flex", alignItems: "center", gap: 6 } }, "🔍 Filtros"),
-                // Agrupacion
-                React.createElement("div", { style: { display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 3 } },
-                    [
-                        { id: "mensual", label: "Mensual", icon: "🗓️" },
-                        { id: "trimestral", label: "Trimestral", icon: "📊" },
-                        { id: "anual", label: "Anual", icon: "📅" }
-                    ].map(t => React.createElement("button", {
-                        key: t.id,
-                        onClick: () => { setViewMode(t.id); setSelectedMonths([]); },
-                        style: {
-                            padding: "6px 14px", borderRadius: 6, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer",
-                            background: viewMode === t.id ? "#fff" : "transparent",
-                            color: viewMode === t.id ? C.blue : C.gray,
-                            boxShadow: viewMode === t.id ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
-                            transition: "all .15s",
-                            display: "flex", alignItems: "center", gap: 4
-                        }
-                    }, t.icon, " ", t.label))
-                ),
                 // Year filter
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
                     React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1 } }, "Año"),
@@ -3199,12 +3081,12 @@ function ViewMensual({ user, onBack }) {
             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 } },
                 React.createElement("div", null,
                     React.createElement("div", { style: { fontWeight: 900, fontSize: 17, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
-                        "📐 Comparativa Numérica"
+                        "📐 Comparativa Numérica Mensual"
                     ),
                     React.createElement("div", { style: { fontSize: 12, color: C.gray, marginTop: 3 } },
                         monthlyCompData.length > 1
-                            ? "Variación período a período — flechas verdes indican mejora, rojas indican deterioro"
-                            : "Métricas del período seleccionado"
+                            ? "Variación mes a mes — flechas verdes indican mejora, rojas indican deterioro"
+                            : "Métricas del mes seleccionado"
                     )
                 ),
                 monthlyCompData.length > 1 && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
@@ -3284,11 +3166,11 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: `linear-gradient(135deg, ${C.navy}, ${C.blue})` } },
-                            ["Período", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
+                            ["Mes", "Ofrecidas", "Δ", "Contestadas", "Δ", "Abandonadas", "Δ", "% Aband.", "Δ pp", "% Atenc.", "Δ pp", "Prom/Día", "T. Prom. Avisando", "T. Promedio"].map(h =>
                                 React.createElement("th", {
                                     key: h + Math.random(), style: {
                                         padding: "10px 8px", color: "#fff", fontWeight: 700, textAlign: "center",
-                                        fontSize: h === "Período" ? 11 : 10, whiteSpace: "nowrap",
+                                        fontSize: h === "Mes" ? 11 : 10, whiteSpace: "nowrap",
                                         borderRight: ["Δ", "Δ pp"].includes(h) ? "2px solid rgba(255,255,255,0.1)" : "none"
                                     }
                                 }, h)
@@ -3387,7 +3269,7 @@ function ViewMensual({ user, onBack }) {
                 React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 } },
                     React.createElement("div", null,
                         React.createElement("div", { style: { fontWeight: 900, fontSize: 14, color: C.navy } }, "📊 Ranking de Desempeño (Abandono)"),
-                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por período")
+                        React.createElement("div", { style: { fontSize: 11, color: C.gray, marginTop: 2 } }, "Comparativa de tasa de abandono y promedio diario por mes")
                     ),
                     (() => {
                         const avgAb = (monthlyCompData.reduce((s, m) => s + m.pctAb, 0) / monthlyCompData.length).toFixed(1);
@@ -3407,7 +3289,7 @@ function ViewMensual({ user, onBack }) {
                             const bgAlpha = m.pctAb > 25 ? "rgba(220,38,38,0.1)" : m.pctAb > 15 ? "rgba(249,115,22,0.1)" : "rgba(22,163,74,0.1)";
 
                             return React.createElement("div", { key: m.firestoreId, style: { display: "grid", gridTemplateColumns: "140px 1fr 100px", alignItems: "center", gap: 15, padding: "8px 12px", borderRadius: 10, background: i === 0 && m.pctAb > 25 ? "rgba(220,38,38,0.03)" : "transparent" } },
-                                // Period Label
+                                // Month Label
                                 React.createElement("div", { style: { fontWeight: 800, fontSize: 12, color: C.navy, display: "flex", alignItems: "center", gap: 8 } },
                                     React.createElement("span", { style: { width: 18, height: 18, borderRadius: 5, background: i === 0 ? C.navy : "#e2e8f0", color: i === 0 ? "#fff" : C.gray, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" } }, i + 1),
                                     m.label
@@ -3431,33 +3313,48 @@ function ViewMensual({ user, onBack }) {
             )
         ),
 
-        // ── PER-PERIOD KPI CARDS (general → particular) ────────────────────────
-        monthlyCompData && monthlyCompData.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
+        // ── PER-MONTH KPI CARDS (general → particular) ────────────────────────
+        filteredHistory.length > 0 && React.createElement("div", { style: { marginBottom: 24 } },
             React.createElement("div", { style: { fontWeight: 800, fontSize: 15, color: C.navy, marginBottom: 14, display: "flex", alignItems: "center", gap: 10 } },
-                "📅 KPIs por Período",
-                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${monthlyCompData.length} ${monthlyCompData.length === 1 ? "período" : "períodos"}`)
+                "📅 KPIs por Mes",
+                React.createElement("span", { style: { fontSize: 11, fontWeight: 600, color: C.gray, background: "#f1f5f9", borderRadius: 99, padding: "3px 10px" } }, `${filteredHistory.length} ${filteredHistory.length === 1 ? "mes" : "meses"}`)
             ),
             React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 } },
                 (() => {
-                    const maxRO = Math.max(...monthlyCompData.map(m => m.ofrecidas), 1);
+                    // Compute max ofrecidas across visible months for relative bar sizing
+                    const allRO = filteredHistory.map(h => {
+                        if (!h) return 0;
+                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
+                        return rows && rows.length ? rows.reduce((s, r) => s + (r?.o || 0), 0) : (h.resumen?.totalOfrecidas || 0);
+                    });
+                    const maxRO = Math.max(...allRO, 1);
 
-                    return monthlyCompData.map((m, i) => {
-                        const rO = m.ofrecidas;
-                        const rC = m.contestadas;
-                        const rA = m.abandonadas;
-                        const rEC = m.enCola;
-                        const rAV = m.avisando;
-                        const rM = m.avgManejo;
-
-                        const pctAt = m.pctAt;
-                        const pctAb = m.pctAb;
-                        const isSel = selectedMonths.includes(m.firestoreId);
+                    return filteredHistory.map((h, i) => {
+                        const rows = filterDetailsByTurno(h.detalles, filterTurno);
+                        let rO, rC, rA, rEC, rAV, rM;
+                        if (rows && rows.length) {
+                            rO = rows.reduce((s, r) => s + (r?.o || 0), 0);
+                            rC = rows.reduce((s, r) => s + (r?.c || 0), 0);
+                            rA = rows.reduce((s, r) => s + (r?.ab || 0), 0);
+                            rEC = rows.reduce((s, r) => s + (r?.ec || 0), 0);
+                            rAV = rows.reduce((s, r) => s + (r?.av || 0), 0);
+                            const mRows = rows.filter(r => r && r.manejo);
+                            rM = mRows.length ? Math.round(mRows.reduce((s, r) => s + r.manejo, 0) / mRows.length) : 0;
+                        } else if (h.resumen) {
+                            rO = h.resumen.totalOfrecidas || 0; rC = h.resumen.totalContestadas || 0; rA = h.resumen.totalAbandonadas || 0;
+                            rEC = 0; rAV = 0; rM = 0;
+                        } else {
+                            rO = 0; rC = 0; rA = 0; rEC = 0; rAV = 0; rM = 0;
+                        }
+                        const pctAt = rO ? (rC / rO * 100) : 0;
+                        const pctAb = rO ? (rA / rO * 100) : 0;
+                        const isSel = selectedMonths.includes(h.firestoreId);
                         const atColor = pctAt >= 85 ? C.green : pctAt >= 70 ? C.yellow : C.red;
                         const abColor = pctAb > 25 ? C.red : pctAb > 15 ? C.orange : C.green;
 
                         return React.createElement("div", {
-                            key: m.firestoreId,
-                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== m.firestoreId) : [...s, m.firestoreId]),
+                            key: h.firestoreId,
+                            onClick: () => setSelectedMonths(s => isSel ? s.filter(x => x !== h.firestoreId) : [...s, h.firestoreId]),
                             style: {
                                 background: "#fff", borderRadius: 12, padding: "18px 20px",
                                 border: `2px solid ${isSel ? C.blue : C.border}`,
@@ -3471,8 +3368,8 @@ function ViewMensual({ user, onBack }) {
                             // Header row
                             React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, marginTop: 4 } },
                                 React.createElement("div", null,
-                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, m.label),
-                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${m.items.length} ${m.items.length === 1 ? 'mes agrupado' : 'meses agrupados'}`)
+                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy } }, h.meta.label),
+                                    React.createElement("div", { style: { fontSize: 10, color: C.gray, marginTop: 2 } }, `${h.meta.year} — ${MONTH_NAMES[h.meta.monthNum] || ""}`)
                                 ),
                                 isSel && React.createElement("div", { style: { background: C.light, color: C.blue, borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 700 } }, "✓ Seleccionado")
                             ),
@@ -3746,14 +3643,7 @@ function ViewComparativaGrupos({ user, onBack }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [areaFilter, setAreaFilter] = useState("all");
-    const [turnoFilter, setTurnoFilter] = useState("all");
     const [availableAreas, setAvailableAreas] = useState([]);
-    const [availableTurnos, setAvailableTurnos] = useState([]);
-    const [compareMode, setCompareMode] = useState(false);
-    const [compareTurno, setCompareTurno] = useState("all");
-    const [compareMonth, setCompareMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
-    const [compareYear, setCompareYear] = useState(new Date().getFullYear().toString());
-    const [compareData, setCompareData] = useState(null);
     const [filter, setFilter] = useState({
         month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
         year: new Date().getFullYear().toString()
@@ -3761,181 +3651,89 @@ function ViewComparativaGrupos({ user, onBack }) {
 
     const loadData = async () => {
         setLoading(true);
-        const [res, areas, turnos] = await Promise.all([
-            getPerformanceByGroup(filter.month, filter.year, areaFilter, turnoFilter),
-            getConfigAreas(),
-            getConfigTurnos()
+        const [res, areas] = await Promise.all([
+            getPerformanceByGroup(filter.month, filter.year, areaFilter),
+            getConfigAreas()
         ]);
         setData(res);
         setAvailableAreas(areas);
-        setAvailableTurnos(turnos);
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [filter, areaFilter, turnoFilter]);
-
-    const loadCompareData = async () => {
-        if (!compareMode) return;
-        setLoading(true);
-        const comp = await getPerformanceByGroup(compareMonth, compareYear, areaFilter, compareTurno);
-        setCompareData(comp);
-        setLoading(false);
-    };
-
-    useEffect(() => { loadCompareData(); }, [compareMode, compareMonth, compareYear, areaFilter, compareTurno]);
+    useEffect(() => { loadData(); }, [filter, areaFilter]);
 
     const stats = useMemo(() => {
         if (!data.length) return null;
         const totalC = data.reduce((s, g) => s + g.c, 0);
-        const totalO = data.reduce((s, g) => s + g.o, 0);
-        const totalAb = data.reduce((s, g) => s + g.ab, 0);
         const bestAb = [...data].sort((a, b) => a.pctAb - b.pctAb)[0];
         const bestProd = [...data].sort((a, b) => (b.c / (b.ops || 1)) - (a.c / (a.ops || 1)))[0];
-        return { totalC, totalO, totalAb, bestAb, bestProd, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
+        return { totalC, bestAb, bestProd };
     }, [data]);
 
-    const compareStats = useMemo(() => {
-        if (!compareData || !compareData.length) return null;
-        const totalC = compareData.reduce((s, g) => s + g.c, 0);
-        const totalO = compareData.reduce((s, g) => s + g.o, 0);
-        const totalAb = compareData.reduce((s, g) => s + g.ab, 0);
-        return { totalC, totalO, totalAb, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
-    }, [compareData]);
-
-    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
     return React.createElement("div", { className: "animate-fade" },
+        // Header
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📊 Dashboard por Turnos"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Sumas mensuales y comparativas por turno/área")
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Análisis de Operadores"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Desempeño individual y evolución mensual")
                 )
             ),
-            React.createElement("button", {
-                onClick: () => setCompareMode(!compareMode),
-                style: { padding: "10px 20px", borderRadius: 8, border: `1.5px solid ${compareMode ? C.blue : C.border}`, background: compareMode ? C.blue : "#fff", color: compareMode ? "#fff" : C.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }
-            }, compareMode ? "✕ Cerrar Comparativa" : "🔄 Comparar Periodos")
-        ),
-
-        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" } },
-            React.createElement("select", {
-                value: areaFilter,
-                onChange: e => setAreaFilter(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-            },
-                React.createElement("option", { value: "all" }, "Todas las Áreas"),
-                availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
-            ),
-            React.createElement("select", {
-                value: turnoFilter,
-                onChange: e => setTurnoFilter(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-            },
-                React.createElement("option", { value: "all" }, "Todos los Turnos"),
-                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
-            ),
-            React.createElement("select", {
-                value: filter.month,
-                onChange: e => setFilter({ ...filter, month: e.target.value }),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-            },
-                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
-            ),
-            React.createElement("select", {
-                value: filter.year,
-                onChange: e => setFilter({ ...filter, year: e.target.value }),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-            },
-                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+            React.createElement("div", { style: { display: "flex", gap: 12 } },
+                React.createElement("select", {
+                    value: areaFilter,
+                    onChange: e => setAreaFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+                ),
+                React.createElement("select", {
+                    value: groupFilter,
+                    onChange: e => setGroupFilter(e.target.value),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+                },
+                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                    availableGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+                ),
+                React.createElement("select", {
+                    value: filter.month,
+                    onChange: e => setFilter({ ...filter, month: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(m =>
+                        React.createElement("option", { key: m, value: m }, m)
+                    )
+                ),
+                React.createElement("select", {
+                    value: filter.year,
+                    onChange: e => setFilter({ ...filter, year: e.target.value }),
+                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+                },
+                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+                )
             )
         ),
 
-        compareMode && React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, padding: "16px 20px", background: C.light, borderRadius: 12, border: `1.5px solid ${C.mid}` } },
-            React.createElement("div", { style: { fontWeight: 700, color: C.navy, fontSize: 13, alignSelf: "center" } }, "Comparar con:"),
-            React.createElement("select", {
-                value: compareTurno,
-                onChange: e => setCompareTurno(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
-            },
-                React.createElement("option", { value: "all" }, "Todos los Turnos"),
-                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
-            ),
-            React.createElement("select", {
-                value: compareMonth,
-                onChange: e => setCompareMonth(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
-            },
-                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
-            ),
-            React.createElement("select", {
-                value: compareYear,
-                onChange: e => setCompareYear(e.target.value),
-                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
-            },
-                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
-            )
-        ),
-
-        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando…") :
+        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando comparativa…") :
             data.length === 0 ? React.createElement("div", { style: { textAlign: "center", padding: 40, background: "#fff", borderRadius: 12, color: C.gray } }, "No hay datos para este periodo.") :
                 React.createElement(React.Fragment, null,
-                    React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" } },
-                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas`, value: (stats?.totalC || 0).toLocaleString(), accent: C.green }),
-                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Ofrecidas`, value: (stats?.totalO || 0).toLocaleString(), accent: C.blue }),
-                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Abandono`, value: `${stats?.pctAb.toFixed(1)}%`, accent: stats?.pctAb > 15 ? C.red : stats?.pctAb > 8 ? C.orange : C.green }),
-                        compareStats && React.createElement(React.Fragment, null,
-                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas`, value: (compareStats.totalC || 0).toLocaleString(), accent: C.green, sub: "vs " + (stats && compareStats.totalC !== 0 ? ((stats.totalC / compareStats.totalC - 1) * 100).toFixed(1) + "%" : "—") }),
-                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Abandono`, value: `${compareStats.pctAb.toFixed(1)}%`, accent: compareStats.pctAb > 15 ? C.red : compareStats.pctAb > 8 ? C.orange : C.green })
-                        )
+                    // KPI Cards
+                    stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
+                        React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
+                        React.createElement(StatKpi, { label: "Grupo Menor Abandono", value: stats.bestAb.group, sub: `${stats.bestAb.pctAb.toFixed(1)}% de tasa`, accent: C.green }),
+                        React.createElement(StatKpi, { label: "Grupo Más Productivo", value: stats.bestProd.group, sub: `${(stats.bestProd.c / (stats.bestProd.ops || 1)).toFixed(0)} llam./op`, accent: C.mid })
                     ),
 
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
+                    // Charts Grid
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
+                        // Chart 1: Abandono
                         React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas por Turno`),
-                            React.createElement("div", { style: { height: 300 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📉 Tasa de Abandono por Grupo (%)"),
+                            React.createElement("div", { style: { height: 260 } },
                                 React.createElement(ChartBar, {
-                                    id: "chart-contestadas-turno",
-                                    data: {
-                                        labels: data.map(g => g.group),
-                                        datasets: [{
-                                            label: "Contestadas",
-                                            data: data.map(g => g.c),
-                                            backgroundColor: data.map(g => C.mid),
-                                            borderRadius: 6
-                                        }]
-                                    },
-                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-                                })
-                            )
-                        ),
-                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas por Turno`),
-                            React.createElement("div", { style: { height: 300 } },
-                                React.createElement(ChartBar, {
-                                    id: "chart-contestadas-compare",
-                                    data: {
-                                        labels: compareData.map(g => g.group),
-                                        datasets: [{
-                                            label: "Contestadas",
-                                            data: compareData.map(g => g.c),
-                                            backgroundColor: compareData.map(g => C.orange),
-                                            borderRadius: 6
-                                        }]
-                                    },
-                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-                                })
-                            )
-                        )
-                    ),
-
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
-                        React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - % Abandono por Turno`),
-                            React.createElement("div", { style: { height: 300 } },
-                                React.createElement(ChartBar, {
-                                    id: "chart-abandono-turno",
+                                    id: "chart-group-abandon",
                                     data: {
                                         labels: data.map(g => g.group),
                                         datasets: [{
@@ -3945,106 +3743,70 @@ function ViewComparativaGrupos({ user, onBack }) {
                                             borderRadius: 6
                                         }]
                                     },
-                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
+                                    options: {
+                                        responsive: true, maintainAspectRatio: false,
+                                        scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }
+                                    }
                                 })
                             )
                         ),
-                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - % Abandono por Turno`),
-                            React.createElement("div", { style: { height: 300 } },
+                        // Chart 2: TMO (Manejo)
+                        React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "⏱ Tiempo de Manejo Promedio"),
+                            React.createElement("div", { style: { height: 260 } },
                                 React.createElement(ChartBar, {
-                                    id: "chart-abandono-compare",
+                                    id: "chart-group-tmo",
                                     data: {
-                                        labels: compareData.map(g => g.group),
+                                        labels: data.map(g => g.group),
                                         datasets: [{
-                                            label: "% Abandono",
-                                            data: compareData.map(g => g.pctAb.toFixed(1)),
-                                            backgroundColor: compareData.map(g => g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green),
+                                            label: "Segundos",
+                                            data: data.map(g => g.avgManejo),
+                                            backgroundColor: C.mid,
                                             borderRadius: 6
                                         }]
                                     },
-                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
+                                    options: {
+                                        responsive: true, maintainAspectRatio: false,
+                                        plugins: { tooltip: { callbacks: { label: ctx => fmtSeconds(ctx.raw) } } }
+                                    }
                                 })
                             )
                         )
                     ),
 
-                    React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginBottom: 24 } },
+                    // Detailed Table
+                    React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
                         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                             React.createElement("thead", null,
                                 React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO (s)", "Avisando (s)"].map(h =>
+                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
                                         React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
                                     )
                                 )
                             ),
                             React.createElement("tbody", null,
-                                data.map((g, i) => {
-                                    const compG = compareData && compareData.find(c => c.group === g.group);
-                                    const diffC = compG ? g.c - compG.c : null;
-                                    const diffAb = compG ? g.pctAb - compG.pctAb : null;
-                                    return React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
-                                        React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } },
-                                            g.c.toLocaleString(),
-                                            diffC !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffC >= 0 ? C.green : C.red } }, `(${diffC >= 0 ? "+" : ""}${diffC})`)
-                                        ),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
-                                            React.createElement(Badge, {
-                                                label: `${g.pctAb.toFixed(1)}%`,
-                                                color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
-                                                bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
-                                            }),
-                                            diffAb !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffAb <= 0 ? C.green : C.red } }, `(${diffAb >= 0 ? "+" : ""}${diffAb.toFixed(1)}%)`)
-                                        ),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
-                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
-                                    );
-                                })
+                                data.map((g, i) => React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
+                                    React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } }, g.c.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
+                                        React.createElement(Badge, {
+                                            label: `${g.pctAb.toFixed(1)}%`,
+                                            color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
+                                            bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
+                                        })
+                                    ),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
+                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
+                                ))
                             )
-                        )
-                    ),
-
-                    stats && stats.bestAb && React.createElement(Card, { style: { padding: 20, marginBottom: 24 } },
-                        React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 12 } }, "🏆 Resumen por Turno"),
-                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200, 1fr))", gap: 16 } },
-                            data.map(g => {
-                                const compG = compareData && compareData.find(c => c.group === g.group);
-                                return React.createElement("div", { key: g.group, style: { padding: 16, background: "#f8fafc", borderRadius: 10, border: `1px solid ${C.border}` } },
-                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 15, color: C.navy, marginBottom: 8 } }, g.group),
-                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
-                                        React.createElement("span", { style: { color: C.gray } }, "Contestadas:"),
-                                        React.createElement("span", { style: { fontWeight: 700, color: C.green } }, g.c.toLocaleString())
-                                    ),
-                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
-                                        React.createElement("span", { style: { color: C.gray } }, "% Abandono:"),
-                                        React.createElement("span", { style: { fontWeight: 700, color: g.pctAb > 15 ? C.red : C.green } }, `${g.pctAb.toFixed(1)}%`)
-                                    ),
-                                    compG && React.createElement(React.Fragment, null,
-                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 } },
-                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. contest:"),
-                                            React.createElement("span", { style: { fontWeight: 600, color: g.c - compG.c >= 0 ? C.green : C.red } }, `${g.c - compG.c >= 0 ? "+" : ""}${g.c - compG.c}`)
-                                        ),
-                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11 } },
-                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. aban:"),
-                                            React.createElement("span", { style: { fontWeight: 600, color: g.pctAb - compG.pctAb <= 0 ? C.green : C.red } }, `${(g.pctAb - compG.pctAb) >= 0 ? "+" : ""}${(g.pctAb - compG.pctAb).toFixed(1)}%`)
-                                        )
-                                    ),
-                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 } },
-                                        React.createElement("span", { style: { color: C.gray } }, "TMO:"),
-                                        React.createElement("span", { style: { fontWeight: 600 } }, fmtSeconds(g.avgManejo))
-                                    )
-                                );
-                            })
                         )
                     )
                 )
     );
 }
-
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4704,84 +4466,35 @@ function ViewGestorPersonal({ user, onBack }) {
             setTurnos(tList);
             setAreas(aList);
 
-            // 1. Cargar personal ya registrado normalizando el ID
-            const rawMap = new Map();
+            // Usar un Map con nombres normalizados para evitar duplicados y discrepancias
+            const masterMap = new Map();
+
+            // 1. Cargar personal ya registrado
             registered.forEach(s => {
                 const id = normalizeName(s.normName || s.name);
-                if (id) {
-                    // Si ya existe, conservar el que tenga más datos (turno, area etc.)
-                    const existing = rawMap.get(id);
-                    if (existing && !existing.turno && s.turno) {
-                        rawMap.set(id, { ...existing, ...s, normName: id });
-                    } else if (!existing) {
-                        rawMap.set(id, { ...s, normName: id });
-                    }
-                }
+                if (id) masterMap.set(id, { ...s, normName: id });
             });
 
-            // 2. Buscar duplicados: personas cuyo normName esté contenido en otro
-            //    (ej: "ABALOSJOAQUIN" contenido en "ABALOS JOAQUIN")
-            const uniqueKeys = new Set(rawMap.keys());
-            for (const k of uniqueKeys) {
-                if (!rawMap.has(k)) continue;
-                for (const other of uniqueKeys) {
-                    if (k === other || !rawMap.has(other)) continue;
-                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
-                    // Si un nombre está contenido dentro del otro, fusionar
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                        rawMap.delete(worst);
-                    }
-                }
-            }
-
-            // 3. Cargar operadores con desempeño que NO estén en personal
+            // 2. Cargar operadores con desempeño que NO estén en personal
             performance.forEach(op => {
                 const id = normalizeName(op.normName || op.name);
-                if (id && !rawMap.has(id)) {
-                    rawMap.set(id, { 
+                if (id && !masterMap.has(id)) {
+                    masterMap.set(id, { 
                         ...op, 
                         normName: id,
                         turno: "—", 
                         area: "—" 
                     });
-                } else if (id && rawMap.has(id)) {
-                    const existing = rawMap.get(id);
+                } else if (id && masterMap.has(id)) {
+                    // Si ya existe, nos aseguramos de que el nombre sea el más legible
+                    const existing = masterMap.get(id);
                     if (!existing.name && op.name) {
-                        rawMap.set(id, { ...existing, name: op.name });
-                    } else if (!existing.turno && op.turno) {
-                        rawMap.set(id, { ...existing, turno: op.turno });
-                    } else if (!existing.area && op.area) {
-                        rawMap.set(id, { ...existing, area: op.area });
+                        masterMap.set(id, { ...existing, name: op.name });
                     }
                 }
             });
 
-            // 4. Revisar de nuevo con los de performance
-            for (const k of [...rawMap.keys()]) {
-                if (!rawMap.has(k)) continue; // ya fue eliminado en iteración previa
-                for (const other of [...rawMap.keys()]) {
-                    if (k === other || !rawMap.has(k) || !rawMap.has(other)) continue;
-                    const entry1 = rawMap.get(k);
-                    const entry2 = rawMap.get(other);
-                    if (!entry1 || !entry2) continue;
-                    const name1 = (entry1.name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (entry2.name || "").toUpperCase().replace(/\s+/g, "");
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        if (rawMap.has(worst) && rawMap.has(best)) {
-                            rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                            rawMap.delete(worst);
-                        }
-                    }
-                }
-            }
-
-            setStaff(Array.from(rawMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            setStaff(Array.from(masterMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         } catch (e) {
             console.error("Error loading staff grid:", e);
         }
@@ -4806,28 +4519,8 @@ function ViewGestorPersonal({ user, onBack }) {
 
     const handleUpdateFieldDirect = async (normName, field, value) => {
         setSaving(normName);
-        try {
-            const success = await updateStaffField(normName, field, value);
-            if (success !== false) {
-                setStaff(prev => {
-                    // Buscar por normName exacto, luego por coincidencia de nombre
-                    let found = prev.find(s => s.normName === normName);
-                    if (!found) {
-                        const noSpaces = normName.replace(/\s+/g, "");
-                        found = prev.find(s => (s.name || "").replace(/\s+/g, "").toUpperCase() === noSpaces);
-                    }
-                    if (found) {
-                        return prev.map(s => s === found ? { ...s, [field]: value } : s);
-                    }
-                    // Si no encontramos, actualizar por normName igual
-                    return prev.map(s => s.normName === normName ? { ...s, [field]: value } : s);
-                });
-            } else {
-                console.error("handleUpdateFieldDirect: update failed");
-            }
-        } catch (e) {
-            console.error("handleUpdateFieldDirect error:", e);
-        }
+        await updateStaffField(normName, field, value);
+        setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
         setSaving(null);
     };
 
