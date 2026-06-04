@@ -348,7 +348,7 @@ function normalizeName(name) {
         .toUpperCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/,/g, "")
+        .replace(/\s*,\s*/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 }
@@ -820,24 +820,49 @@ async function updateStaffField(normName, field, value) {
         const db = getDB();
         if (!db) { console.error("updateStaffField: db not available"); return false; }
         
-        const { doc, setDoc, collection, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { doc, setDoc, collection, addDoc, getDocs, serverTimestamp, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
         
-        // Guardar en documento principal asegurando que normName esté presente
-        await setDoc(doc(db, "staff", normName), { 
-            [field]: value,
-            normName: normName 
-        }, { merge: true });
+        // Buscar si ya existe un documento staff con este mismo nombre (sin espacios)
+        const allStaffSnap = await getDocs(collection(db, "staff"));
+        const noSpacesTarget = normName.replace(/\s+/g, "");
+        let existingDoc = null;
+        for (const d of allStaffSnap.docs) {
+            const data = d.data();
+            const n = normalizeName(data.normName || data.name || d.id);
+            if (n && n.replace(/\s+/g, "") === noSpacesTarget && d.id !== normName) {
+                existingDoc = d;
+                break;
+            }
+        }
+        
+        let targetNormName = normName;
+        if (existingDoc) {
+            // Fusionar datos del documento existente con los nuevos
+            targetNormName = existingDoc.id;
+            const merged = { ...existingDoc.data(), [field]: value, normName: existingDoc.id };
+            await setDoc(doc(db, "staff", existingDoc.id), merged, { merge: true });
+            // Eliminar el documento con normName antiguo si existe
+            if (normName !== existingDoc.id) {
+                try { await deleteDoc(doc(db, "staff", normName)); } catch (e) { /* ignore */ }
+            }
+            console.log("✓ updateStaffField: merged with existing doc", { from: normName, to: targetNormName, field, value });
+        } else {
+            await setDoc(doc(db, "staff", targetNormName), { 
+                [field]: value,
+                normName: targetNormName 
+            }, { merge: true });
+            console.log("✓ updateStaffField: saved", { normName, field, value });
+        }
         
         // Registrar en historial
         await addDoc(collection(db, "staff_history"), {
-            normName,
+            normName: targetNormName,
             field,
             value,
             month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
             year: new Date().getFullYear(),
             timestamp: serverTimestamp()
         });
-        console.log("✓ updateStaffField: saved", { normName, field, value });
         return true;
     } catch (e) {
         console.error("updateStaffField error:", e);
@@ -965,17 +990,36 @@ async function getUniqueOperators() {
     return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
-async function getGroupAverages(year) {
+async function getGroupAverages(year, area = null) {
     const db = getDB();
     if (!db) return {};
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
-    const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
+
+    // Build area map from staff if filtering by area
+    let areaMap = null;
+    if (area) {
+        const staffSnap = await getDocs(collection(db, "staff"));
+        areaMap = {};
+        staffSnap.docs.forEach(sd => {
+            const s = sd.data();
+            const norm = sd.id;
+            const sArea = s.area || "";
+            areaMap[norm] = sArea;
+        });
+    }
+
+    const months = {};
 
     snap.docs.forEach(d => {
         const p = d.data();
+        // Skip if filtering by area and operator doesn't match
+        if (area && areaMap) {
+            const opArea = areaMap[p.normName] || "";
+            if (opArea !== area) return;
+        }
         const m = p.month;
         if (!months[m]) months[m] = { c: 0, o: 0, ab: 0, prod: 0, avisando: 0, manejo: 0, count: 0 };
         months[m].c += p.c;
@@ -1119,22 +1163,36 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
     }
 }
 
-async function getPerformanceByGroup(month, year, areaFilter = "all") {
+async function getPerformanceByGroup(month, year, areaFilter = "all", turnoFilter = "all") {
     const [perf, staff] = await Promise.all([
         getOperatorPerformance(month, year),
         getStaffList()
     ]);
 
+    // Construir staffMap con doble clave: normName exacto y normName sin espacios
     const staffMap = {};
-    staff.forEach(s => { staffMap[s.normName] = s; });
+    staff.forEach(s => {
+        const n = s.normName || "";
+        staffMap[n] = s;
+        // También guardar sin espacios para matching flexible
+        const noSpaces = n.replace(/\s+/g, "");
+        if (noSpaces && noSpaces !== n) staffMap[noSpaces] = s;
+    });
 
     const groups = {};
     perf.forEach(p => {
-        const s = staffMap[p.normName] || {};
-        // Filtrar por Área si se solicita
+        // Buscar staff: primero por normName exacto, luego sin espacios
+        const perfNorm = (p.normName || "").trim();
+        let s = staffMap[perfNorm];
+        if (!s) {
+            const perfNoSpaces = perfNorm.replace(/\s+/g, "");
+            s = staffMap[perfNoSpaces] || {};
+        }
         if (areaFilter !== "all" && s.area !== areaFilter) return;
+        if (turnoFilter !== "all" && s.turno !== turnoFilter) return;
 
-        const group = s.turno || s.grupo || "Sin Turno";
+        // Si hay staff asignado, usar su turno/grupo; si no, usar grupo del performance data
+        const group = s.turno || s.grupo || (s.normName ? "Sin Turno" : p.grupo || "Sin Turno");
         if (!groups[group]) {
             groups[group] = {
                 group,
@@ -1555,9 +1613,9 @@ function ViewReporteHistorial({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta Registrados"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación a Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
-                        { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
+                        { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
                             React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: C.navy } }, t.label),
@@ -1598,16 +1656,6 @@ function ViewReporteHistorial({ data }) {
                         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                             React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
                             React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, a.nombre.split(",")[0])
-                        ),
-                        React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
-                    ))
-                ),
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12 } }, "⚠️ MENOR ACTIVIDAD"),
-                    agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0])
                         ),
                         React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
                     ))
@@ -1765,9 +1813,9 @@ function ViewResumen({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta (SLA)"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación a Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
-                        { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
+                        { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
                             React.createElement("div", null,
@@ -1804,7 +1852,7 @@ function ViewResumen({ data }) {
         // --- DESEMPEÑO POR OPERADOR Y RANKINGS ---
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: 20, marginBottom: 20 } },
             agentesData && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Rendimiento por Operador (Top 15 Atendidas)"),
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Gestión por Operador"),
                 React.createElement("div", { style: { height: 350 } }, React.createElement(ChartBar, { id: "master-chart-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, indexAxis: "y", plugins: { legend: { position: "bottom" } } } }))
             ),
             React.createElement(Card, { style: { padding: "20px 0" } },
@@ -1831,17 +1879,7 @@ function ViewResumen({ data }) {
                             )
                         ))
                     ),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12 } }, "⚠️ BOTTOM 5 ACTIVIDAD"),
-                        agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 } },
-                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { textAlign: "right" } },
-                                React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.navy } }, a.contestadas),
-                                React.createElement("div", { style: { fontSize: 9, color: C.red, fontWeight: 700 } }, `${a.pctAbandonoCabina}%`)
-                            )
-                        ))
-                    )
+
                 )
             )
         ),
@@ -2064,48 +2102,95 @@ function ViewDespacho({ data }) {
     if (!dpI.length && !dpD.length && !dpC.length)
         return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá los archivos de tiempos de despacho.");
 
+    const etapas = [
+        { id: "dpC", title: "📋 Creación a Derivación", dataset: dpC },
+        { id: "dpD", title: "🔄 Derivación a Inicio", dataset: dpD },
+        { id: "dpI", title: "⏱ Inicio a Asignación", dataset: dpI }
+    ].filter(e => e.dataset.length > 0);
+
     return React.createElement("div", null,
         React.createElement(SectionTitle, { num: "4", title: "Tiempos de Despacho por Distrito", sub: "Un ranking por cada métrica de tiempo" }),
-        dpC.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "📋 Creación Evento → Derivación",
-            subtitle: `${dpC.length} distritos — tiempo desde la creación del evento hasta el despacho`,
-            dataset: dpC,
-        }),
-        dpD.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "🔄 Derivación → Despacho",
-            subtitle: `${dpD.length} distritos — tiempo desde derivación hasta inicio del despacho`,
-            dataset: dpD,
-        }),
-        dpI.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "⏱ Inicio Despacho → Asignación",
-            subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
-            dataset: dpI,
-        })
+        React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
+
+        // ── TOP 3 de todas las etapas agrupados ──
+        React.createElement("div", { style: { marginBottom: 32 } },
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy, marginBottom: 16 } }, "🏆 Top 3 — Mejores y Peores Tiempos"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300, 1fr))", gap: 16 } },
+                etapas.map(e => {
+                    const sorted = [...e.dataset].sort((a, b) => a.tiempoSec - b.tiempoSec);
+                    const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
+                    const top3 = sorted.slice(0, 3);
+                    const bot3 = sorted.slice(-3).reverse();
+                    return React.createElement("div", { key: e.id },
+                        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.navy, marginBottom: 10 } }, e.title),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
+                            React.createElement(Card, { style: { padding: "12px 14px" } },
+                                React.createElement("div", { style: { fontWeight: 700, fontSize: 10, color: "#065f46", marginBottom: 8 } }, "🏆 Menor tiempo"),
+                                top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: "top", compact: true }))
+                            ),
+                            React.createElement(Card, { style: { padding: "12px 14px" } },
+                                React.createElement("div", { style: { fontWeight: 700, fontSize: 10, color: C.red, marginBottom: 8 } }, "⚠️ Mayor tiempo"),
+                                bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length - i, variant: "bot", compact: true }))
+                            )
+                        )
+                    );
+                })
+            )
+        ),
+
+        // ── Separador ──
+        React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 32px" } }),
+
+        // ── Rankings completos de todas las etapas ──
+        React.createElement("div", null,
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy, marginBottom: 16 } }, "📊 Rankings Completos"),
+            etapas.map(e => {
+                const sorted = [...e.dataset].sort((a, b) => a.tiempoSec - b.tiempoSec);
+                const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
+                return React.createElement("div", { key: e.id, style: { marginBottom: 24 } },
+                    React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 2 } }, e.title),
+                    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 10 } }, `${sorted.length} distritos`),
+                    React.createElement(Card, null,
+                        sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: i < 3 ? "top" : i >= sorted.length - 3 ? "bot" : "mid", compact: false }))
+                    )
+                );
+            })
+        )
     );
 }
 
 
-function DistritoRow({ d, maxSec, rank, variant }) {
+function DistritoRow({ d, maxSec, rank, variant, compact }) {
     const pct = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
     const efPct = d.total > 0 ? (d.efectiva / d.total) * 100 : 0;
     const col = variant === "bot" ? C.red : variant === "top" ? C.green : C.mid;
     const bg = variant === "bot" ? C.redBg : variant === "top" ? C.greenBg : (rank % 2 === 0 ? "#f8fafc" : "#fff");
     const bdr = variant === "bot" ? "#fecaca" : variant === "top" ? "#86efac" : C.border;
 
-    return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: 5 } },
-        React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
-        React.createElement("div", { style: { width: 100, fontSize: 11, fontWeight: 700, color: C.navy } }, d.nombre),
-        React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8 } },
-            React.createElement(MiniBar, { pct, color: col }),
-            React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: col, minWidth: 70, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
-        ),
-        React.createElement("div", { style: { width: 80, textAlign: "right", fontSize: 11 } },
-            React.createElement("span", { style: { color: C.gray } }, `${d.efectiva}/${d.total} `),
-            React.createElement("span", { style: { fontWeight: 700, color: efPct >= 90 ? C.green : efPct >= 80 ? C.yellow : C.red } }, `(${efPct.toFixed(0)}%)`)
-        )
+    return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: compact ? 6 : 10, padding: compact ? "4px 6px" : "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: compact ? 3 : 5 } },
+        React.createElement("div", { style: { width: compact ? 20 : 24, height: compact ? 20 : 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: compact ? 8 : 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
+        React.createElement("div", { style: { fontSize: compact ? 10 : 11, fontWeight: 700, color: C.navy, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.nombre),
+        compact
+            ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 } },
+                React.createElement("div", { style: { width: 60, height: 4, borderRadius: 2, background: "#e2e8f0", overflow: "hidden" } },
+                React.createElement("div", { style: { height: "100%", width: `${pct}%`, background: col, borderRadius: 2 } })
+                ),
+                React.createElement("span", { style: { fontSize: 14, fontWeight: 900, color: col, minWidth: 54, textAlign: "right", fontVariantNumeric: "tabular-nums" } }, fmtSeconds(d.tiempoSec)),
+                React.createElement("div", { style: { textAlign: "right" } },
+                    React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: efPct >= 90 ? "#065f46" : efPct >= 80 ? C.yellow : C.red } }, `${efPct.toFixed(0)}%`),
+                    React.createElement("div", { style: { fontSize: 8, color: C.gray } }, `${d.efectiva}/${d.total}`)
+                )
+            )
+            : React.createElement(React.Fragment, null,
+                React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8 } },
+                    React.createElement(MiniBar, { pct, color: col }),
+                    React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: col, minWidth: 70, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
+                ),
+                React.createElement("div", { style: { width: 80, textAlign: "right", fontSize: 11 } },
+                    React.createElement("span", { style: { color: C.gray } }, `${d.efectiva}/${d.total} `),
+                    React.createElement("span", { style: { fontWeight: 700, color: efPct >= 90 ? C.green : efPct >= 80 ? C.yellow : C.red } }, `(${efPct.toFixed(0)}%)`)
+                )
+            )
     );
 }
 
@@ -2353,7 +2438,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 } },
                     React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
                         React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.blue } }, fmtSeconds(avg(dpI))),
-                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Inicio → Despacho")
+                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Inicio → Asignación")
                     ),
                     React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
                         React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.orange } }, fmtSeconds(avg(dpD))),
@@ -3721,7 +3806,14 @@ function ViewComparativaGrupos({ user, onBack }) {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [areaFilter, setAreaFilter] = useState("all");
+    const [turnoFilter, setTurnoFilter] = useState("all");
     const [availableAreas, setAvailableAreas] = useState([]);
+    const [availableTurnos, setAvailableTurnos] = useState([]);
+    const [compareMode, setCompareMode] = useState(false);
+    const [compareTurno, setCompareTurno] = useState("all");
+    const [compareMonth, setCompareMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
+    const [compareYear, setCompareYear] = useState(new Date().getFullYear().toString());
+    const [compareData, setCompareData] = useState(null);
     const [filter, setFilter] = useState({
         month: (new Date().getMonth() + 1).toString().padStart(2, "0"),
         year: new Date().getFullYear().toString()
@@ -3729,89 +3821,181 @@ function ViewComparativaGrupos({ user, onBack }) {
 
     const loadData = async () => {
         setLoading(true);
-        const [res, areas] = await Promise.all([
-            getPerformanceByGroup(filter.month, filter.year, areaFilter),
-            getConfigAreas()
+        const [res, areas, turnos] = await Promise.all([
+            getPerformanceByGroup(filter.month, filter.year, areaFilter, turnoFilter),
+            getConfigAreas(),
+            getConfigTurnos()
         ]);
         setData(res);
         setAvailableAreas(areas);
+        setAvailableTurnos(turnos);
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [filter, areaFilter]);
+    useEffect(() => { loadData(); }, [filter, areaFilter, turnoFilter]);
+
+    const loadCompareData = async () => {
+        if (!compareMode) return;
+        setLoading(true);
+        const comp = await getPerformanceByGroup(compareMonth, compareYear, areaFilter, compareTurno);
+        setCompareData(comp);
+        setLoading(false);
+    };
+
+    useEffect(() => { loadCompareData(); }, [compareMode, compareMonth, compareYear, areaFilter, compareTurno]);
 
     const stats = useMemo(() => {
         if (!data.length) return null;
         const totalC = data.reduce((s, g) => s + g.c, 0);
+        const totalO = data.reduce((s, g) => s + g.o, 0);
+        const totalAb = data.reduce((s, g) => s + g.ab, 0);
         const bestAb = [...data].sort((a, b) => a.pctAb - b.pctAb)[0];
         const bestProd = [...data].sort((a, b) => (b.c / (b.ops || 1)) - (a.c / (a.ops || 1)))[0];
-        return { totalC, bestAb, bestProd };
+        return { totalC, totalO, totalAb, bestAb, bestProd, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
     }, [data]);
 
+    const compareStats = useMemo(() => {
+        if (!compareData || !compareData.length) return null;
+        const totalC = compareData.reduce((s, g) => s + g.c, 0);
+        const totalO = compareData.reduce((s, g) => s + g.o, 0);
+        const totalAb = compareData.reduce((s, g) => s + g.ab, 0);
+        return { totalC, totalO, totalAb, pctAb: totalO ? (totalAb / totalO * 100) : 0 };
+    }, [compareData]);
+
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
     return React.createElement("div", { className: "animate-fade" },
-        // Header
         React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 } },
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Análisis de Operadores"),
-                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Desempeño individual y evolución mensual")
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "📊 Dashboard por Turnos"),
+                    React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Sumas mensuales y comparativas por turno/área")
                 )
             ),
-            React.createElement("div", { style: { display: "flex", gap: 12 } },
-                React.createElement("select", {
-                    value: areaFilter,
-                    onChange: e => setAreaFilter(e.target.value),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-                },
-                    React.createElement("option", { value: "all" }, "Todas las Áreas"),
-                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
-                ),
-                React.createElement("select", {
-                    value: areaFilter,
-                    onChange: e => setAreaFilter(e.target.value),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
-                },
-                    React.createElement("option", { value: "all" }, "Todos los Turnos"),
-                    availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
-                ),
-                React.createElement("select", {
-                    value: filter.month,
-                    onChange: e => setFilter({ ...filter, month: e.target.value }),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-                },
-                    ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map(m =>
-                        React.createElement("option", { key: m, value: m }, m)
-                    )
-                ),
-                React.createElement("select", {
-                    value: filter.year,
-                    onChange: e => setFilter({ ...filter, year: e.target.value }),
-                    style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
-                },
-                    ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
-                )
+            React.createElement("button", {
+                onClick: () => setCompareMode(!compareMode),
+                style: { padding: "10px 20px", borderRadius: 8, border: `1.5px solid ${compareMode ? C.blue : C.border}`, background: compareMode ? C.blue : "#fff", color: compareMode ? "#fff" : C.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }
+            }, compareMode ? "✕ Cerrar Comparativa" : "🔄 Comparar Periodos")
+        ),
+
+        React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" } },
+            React.createElement("select", {
+                value: areaFilter,
+                onChange: e => setAreaFilter(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todas las Áreas"),
+                availableAreas.map(a => React.createElement("option", { key: a, value: a }, a))
+            ),
+            React.createElement("select", {
+                value: turnoFilter,
+                onChange: e => setTurnoFilter(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
+            ),
+            React.createElement("select", {
+                value: filter.month,
+                onChange: e => setFilter({ ...filter, month: e.target.value }),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+            },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", {
+                value: filter.year,
+                onChange: e => setFilter({ ...filter, year: e.target.value }),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600 }
+            },
+                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
             )
         ),
 
-        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando comparativa…") :
+        compareMode && React.createElement("div", { style: { display: "flex", gap: 12, marginBottom: 20, padding: "16px 20px", background: C.light, borderRadius: 12, border: `1.5px solid ${C.mid}` } },
+            React.createElement("div", { style: { fontWeight: 700, color: C.navy, fontSize: 13, alignSelf: "center" } }, "Comparar con:"),
+            React.createElement("select", {
+                value: compareTurno,
+                onChange: e => setCompareTurno(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                React.createElement("option", { value: "all" }, "Todos los Turnos"),
+                availableTurnos.map(t => React.createElement("option", { key: t, value: t }, t))
+            ),
+            React.createElement("select", {
+                value: compareMonth,
+                onChange: e => setCompareMonth(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                monthNames.map((m, i) => React.createElement("option", { key: i, value: (i + 1).toString().padStart(2, "0") }, m))
+            ),
+            React.createElement("select", {
+                value: compareYear,
+                onChange: e => setCompareYear(e.target.value),
+                style: { padding: "10px", borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, background: "#fff" }
+            },
+                ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+            )
+        ),
+
+        loading ? React.createElement("div", { style: { textAlign: "center", padding: 40, color: C.gray } }, "Cargando…") :
             data.length === 0 ? React.createElement("div", { style: { textAlign: "center", padding: 40, background: "#fff", borderRadius: 12, color: C.gray } }, "No hay datos para este periodo.") :
                 React.createElement(React.Fragment, null,
-                    // KPI Cards
-                    stats && React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24 } },
-                        React.createElement(StatKpi, { label: "Total Contestadas", value: stats.totalC.toLocaleString(), accent: C.blue }),
-                        React.createElement(StatKpi, { label: "Grupo Menor Abandono", value: stats.bestAb.group, sub: `${stats.bestAb.pctAb.toFixed(1)}% de tasa`, accent: C.green }),
-                        React.createElement(StatKpi, { label: "Grupo Más Productivo", value: stats.bestProd.group, sub: `${(stats.bestProd.c / (stats.bestProd.ops || 1)).toFixed(0)} llam./op`, accent: C.mid })
+                    React.createElement("div", { style: { display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" } },
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas`, value: (stats?.totalC || 0).toLocaleString(), accent: C.green }),
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Ofrecidas`, value: (stats?.totalO || 0).toLocaleString(), accent: C.blue }),
+                        React.createElement(StatKpi, { label: `${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Abandono`, value: `${stats?.pctAb.toFixed(1)}%`, accent: stats?.pctAb > 15 ? C.red : stats?.pctAb > 8 ? C.orange : C.green }),
+                        compareStats && React.createElement(React.Fragment, null,
+                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas`, value: (compareStats.totalC || 0).toLocaleString(), accent: C.green, sub: "vs " + (stats && compareStats.totalC !== 0 ? ((stats.totalC / compareStats.totalC - 1) * 100).toFixed(1) + "%" : "—") }),
+                            React.createElement(StatKpi, { label: `${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Abandono`, value: `${compareStats.pctAb.toFixed(1)}%`, accent: compareStats.pctAb > 15 ? C.red : compareStats.pctAb > 8 ? C.orange : C.green })
+                        )
                     ),
 
-                    // Charts Grid
-                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 } },
-                        // Chart 1: Abandono
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
                         React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "📉 Tasa de Abandono por Grupo (%)"),
-                            React.createElement("div", { style: { height: 260 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - Contestadas por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
                                 React.createElement(ChartBar, {
-                                    id: "chart-group-abandon",
+                                    id: "chart-contestadas-turno",
+                                    data: {
+                                        labels: data.map(g => g.group),
+                                        datasets: [{
+                                            label: "Contestadas",
+                                            data: data.map(g => g.c),
+                                            backgroundColor: data.map(g => C.mid),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        ),
+                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📊 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - Contestadas por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-contestadas-compare",
+                                    data: {
+                                        labels: compareData.map(g => g.group),
+                                        datasets: [{
+                                            label: "Contestadas",
+                                            data: compareData.map(g => g.c),
+                                            backgroundColor: compareData.map(g => C.orange),
+                                            borderRadius: 6
+                                        }]
+                                    },
+                                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                                })
+                            )
+                        )
+                    ),
+
+                    React.createElement("div", { style: { display: "grid", gridTemplateColumns: compareMode ? "1fr 1fr" : "1fr", gap: 20, marginBottom: 24 } },
+                        React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(filter.month) - 1]} ${filter.year} - % Abandono por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
+                                React.createElement(ChartBar, {
+                                    id: "chart-abandono-turno",
                                     data: {
                                         labels: data.map(g => g.group),
                                         datasets: [{
@@ -3821,70 +4005,106 @@ function ViewComparativaGrupos({ user, onBack }) {
                                             borderRadius: 6
                                         }]
                                     },
-                                    options: {
-                                        responsive: true, maintainAspectRatio: false,
-                                        scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }
-                                    }
+                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
                                 })
                             )
                         ),
-                        // Chart 2: TMO (Manejo)
-                        React.createElement(Card, { style: { padding: 20 } },
-                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, "⏱ Tiempo de Manejo Promedio"),
-                            React.createElement("div", { style: { height: 260 } },
+                        compareMode && compareData && compareData.length > 0 && React.createElement(Card, { style: { padding: 20 } },
+                            React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16 } }, `📉 ${monthNames[parseInt(compareMonth) - 1]} ${compareYear} - % Abandono por Turno`),
+                            React.createElement("div", { style: { height: 300 } },
                                 React.createElement(ChartBar, {
-                                    id: "chart-group-tmo",
+                                    id: "chart-abandono-compare",
                                     data: {
-                                        labels: data.map(g => g.group),
+                                        labels: compareData.map(g => g.group),
                                         datasets: [{
-                                            label: "Segundos",
-                                            data: data.map(g => g.avgManejo),
-                                            backgroundColor: C.mid,
+                                            label: "% Abandono",
+                                            data: compareData.map(g => g.pctAb.toFixed(1)),
+                                            backgroundColor: compareData.map(g => g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green),
                                             borderRadius: 6
                                         }]
                                     },
-                                    options: {
-                                        responsive: true, maintainAspectRatio: false,
-                                        plugins: { tooltip: { callbacks: { label: ctx => fmtSeconds(ctx.raw) } } }
-                                    }
+                                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { callback: v => v + "%" } } }, plugins: { legend: { display: false } } }
                                 })
                             )
                         )
                     ),
 
-                    // Detailed Table
-                    React.createElement(Card, { style: { padding: 0, overflow: "hidden" } },
+                    React.createElement(Card, { style: { padding: 0, overflow: "hidden", marginBottom: 24 } },
                         React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                             React.createElement("thead", null,
                                 React.createElement("tr", { style: { background: C.navy, color: "#fff" } },
-                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO", "Avisando"].map(h =>
+                                    ["Turno", "Op.", "Ofrecidas", "Contest.", "Aband.", "% Aband.", "TMO (s)", "Avisando (s)"].map(h =>
                                         React.createElement("th", { key: h, style: { padding: "14px 16px", textAlign: "center", fontSize: 12 } }, h)
                                     )
                                 )
                             ),
                             React.createElement("tbody", null,
-                                data.map((g, i) => React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
-                                    React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } }, g.c.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
-                                        React.createElement(Badge, {
-                                            label: `${g.pctAb.toFixed(1)}%`,
-                                            color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
-                                            bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
-                                        })
-                                    ),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
-                                    React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
-                                ))
+                                data.map((g, i) => {
+                                    const compG = compareData && compareData.find(c => c.group === g.group);
+                                    const diffC = compG ? g.c - compG.c : null;
+                                    const diffAb = compG ? g.pctAb - compG.pctAb : null;
+                                    return React.createElement("tr", { key: g.group, style: { borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "#f8fafc" : "#fff" } },
+                                        React.createElement("td", { style: { padding: "14px 16px", fontWeight: 800, color: C.navy } }, g.group),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.ops),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } }, g.o.toLocaleString()),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.green, fontWeight: 700 } },
+                                            g.c.toLocaleString(),
+                                            diffC !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffC >= 0 ? C.green : C.red } }, `(${diffC >= 0 ? "+" : ""}${diffC})`)
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", color: C.red, fontWeight: 700 } }, g.ab.toLocaleString()),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center" } },
+                                            React.createElement(Badge, {
+                                                label: `${g.pctAb.toFixed(1)}%`,
+                                                color: g.pctAb > 20 ? C.red : g.pctAb > 10 ? C.orange : C.green,
+                                                bg: g.pctAb > 20 ? C.redBg : g.pctAb > 10 ? C.orBg : C.greenBg
+                                            }),
+                                            diffAb !== null && React.createElement("span", { style: { fontSize: 10, marginLeft: 6, color: diffAb <= 0 ? C.green : C.red } }, `(${diffAb >= 0 ? "+" : ""}${diffAb.toFixed(1)}%)`)
+                                        ),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgManejo)),
+                                        React.createElement("td", { style: { padding: "14px 16px", textAlign: "center", fontWeight: 600 } }, fmtSeconds(g.avgAvisando))
+                                    );
+                                })
                             )
+                        )
+                    ),
+
+                    stats && stats.bestAb && React.createElement(Card, { style: { padding: 20, marginBottom: 24 } },
+                        React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 12 } }, "🏆 Resumen por Turno"),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200, 1fr))", gap: 16 } },
+                            data.map(g => {
+                                const compG = compareData && compareData.find(c => c.group === g.group);
+                                return React.createElement("div", { key: g.group, style: { padding: 16, background: "#f8fafc", borderRadius: 10, border: `1px solid ${C.border}` } },
+                                    React.createElement("div", { style: { fontWeight: 900, fontSize: 15, color: C.navy, marginBottom: 8 } }, g.group),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "Contestadas:"),
+                                        React.createElement("span", { style: { fontWeight: 700, color: C.green } }, g.c.toLocaleString())
+                                    ),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "% Abandono:"),
+                                        React.createElement("span", { style: { fontWeight: 700, color: g.pctAb > 15 ? C.red : C.green } }, `${g.pctAb.toFixed(1)}%`)
+                                    ),
+                                    compG && React.createElement(React.Fragment, null,
+                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 } },
+                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. contest:"),
+                                            React.createElement("span", { style: { fontWeight: 600, color: g.c - compG.c >= 0 ? C.green : C.red } }, `${g.c - compG.c >= 0 ? "+" : ""}${g.c - compG.c}`)
+                                        ),
+                                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 11 } },
+                                            React.createElement("span", { style: { color: C.gray } }, "vs prev. aban:"),
+                                            React.createElement("span", { style: { fontWeight: 600, color: g.pctAb - compG.pctAb <= 0 ? C.green : C.red } }, `${(g.pctAb - compG.pctAb) >= 0 ? "+" : ""}${(g.pctAb - compG.pctAb).toFixed(1)}%`)
+                                        )
+                                    ),
+                                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 } },
+                                        React.createElement("span", { style: { color: C.gray } }, "TMO:"),
+                                        React.createElement("span", { style: { fontWeight: 600 } }, fmtSeconds(g.avgManejo))
+                                    )
+                                );
+                            })
                         )
                     )
                 )
     );
 }
+
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4359,10 +4579,18 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
         setLoading(true);
         Promise.all([
             getOperatorHistory(selectedAgent, year),
-            getGroupAverages(year)
-        ]).then(([h, g]) => {
+            getGroupAverages(year),
+            getStaffList()
+        ]).then(([h, g, staff]) => {
             setHistory(h);
-            setGroupAvg(g);
+            // Find operator's area from staff
+            const opArea = selectedAgent ? (staff.find(s => s.normName === selectedAgent)?.area || null) : null;
+            // If operator has an area, reload averages filtered by that area
+            if (opArea) {
+                getGroupAverages(year, opArea).then(ga => setGroupAvg(ga));
+            } else {
+                setGroupAvg(g);
+            }
             setLoading(false);
         });
     }, [selectedAgent, year]);
@@ -4370,13 +4598,14 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     const stats = useMemo(() => {
         if (!history.length) return null;
         const totalC = history.reduce((s, h) => s + h.c, 0);
+        const totalAb = history.reduce((s, h) => s + (h.ab || 0), 0);
         const avgEff = (history.reduce((s, h) => s + h.pctProd, 0) / history.length).toFixed(1);
         const avgProd = (history.reduce((s, h) => {
             const hrs = (h.totalConectado / 3600) || 1;
             return s + (h.c / hrs);
         }, 0) / history.length).toFixed(1);
 
-        return { totalC, avgEff, avgProd };
+        return { totalC, totalAb, avgEff, avgProd };
     }, [history]);
 
     const chartData = useMemo(() => {
@@ -4445,8 +4674,9 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
 
         selectedAgent && !loading && stats && React.createElement("div", { className: "animate-fade" },
             // KPIs
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 } },
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
                 React.createElement(StatKpi, { label: "Total Atendidas (Año)", value: stats.totalC.toLocaleString(), accent: C.blue }),
+                React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAb.toLocaleString(), accent: C.red }),
                 React.createElement(StatKpi, { label: "Eficiencia Avg", value: `${stats.avgEff}%`, sub: "% Voz Preparada", accent: C.green }),
                 React.createElement(StatKpi, { label: "Productividad Avg", value: stats.avgProd, sub: "Contestadas / Hora", accent: C.mid })
             ),
@@ -4474,7 +4704,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Mes", "Contestadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
+                            ["Mes", "Contestadas", "Abandonadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
@@ -4486,6 +4716,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                             return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 800, color: C.navy } }, MONTH_NAMES[h.month] || h.month),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700 } }, h.c),
+                                React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.red } }, h.ab || 0),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.blue } }, prod),
                                 React.createElement("td", { style: { padding: "12px 20px", color: C.green, fontWeight: 700 } }, `${h.pctProd}%`),
                                 React.createElement("td", { style: { padding: "12px 20px", color: C.orange, fontWeight: 700 } }, `${h.pctNoProd}%`),
@@ -4544,35 +4775,84 @@ function ViewGestorPersonal({ user, onBack }) {
             setTurnos(tList);
             setAreas(aList);
 
-            // Usar un Map con nombres normalizados para evitar duplicados y discrepancias
-            const masterMap = new Map();
-
-            // 1. Cargar personal ya registrado
+            // 1. Cargar personal ya registrado normalizando el ID
+            const rawMap = new Map();
             registered.forEach(s => {
                 const id = normalizeName(s.normName || s.name);
-                if (id) masterMap.set(id, { ...s, normName: id });
+                if (id) {
+                    // Si ya existe, conservar el que tenga más datos (turno, area etc.)
+                    const existing = rawMap.get(id);
+                    if (existing && !existing.turno && s.turno) {
+                        rawMap.set(id, { ...existing, ...s, normName: id });
+                    } else if (!existing) {
+                        rawMap.set(id, { ...s, normName: id });
+                    }
+                }
             });
 
-            // 2. Cargar operadores con desempeño que NO estén en personal
+            // 2. Buscar duplicados: personas cuyo normName esté contenido en otro
+            //    (ej: "ABALOSJOAQUIN" contenido en "ABALOS JOAQUIN")
+            const uniqueKeys = new Set(rawMap.keys());
+            for (const k of uniqueKeys) {
+                if (!rawMap.has(k)) continue;
+                for (const other of uniqueKeys) {
+                    if (k === other || !rawMap.has(other)) continue;
+                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
+                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
+                    // Si un nombre está contenido dentro del otro, fusionar
+                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
+                        const best = name1.length >= name2.length ? k : other;
+                        const worst = name1.length >= name2.length ? other : k;
+                        rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
+                        rawMap.delete(worst);
+                    }
+                }
+            }
+
+            // 3. Cargar operadores con desempeño que NO estén en personal
             performance.forEach(op => {
                 const id = normalizeName(op.normName || op.name);
-                if (id && !masterMap.has(id)) {
-                    masterMap.set(id, { 
+                if (id && !rawMap.has(id)) {
+                    rawMap.set(id, { 
                         ...op, 
                         normName: id,
                         turno: "—", 
                         area: "—" 
                     });
-                } else if (id && masterMap.has(id)) {
-                    // Si ya existe, nos aseguramos de que el nombre sea el más legible
-                    const existing = masterMap.get(id);
+                } else if (id && rawMap.has(id)) {
+                    const existing = rawMap.get(id);
                     if (!existing.name && op.name) {
-                        masterMap.set(id, { ...existing, name: op.name });
+                        rawMap.set(id, { ...existing, name: op.name });
+                    } else if (!existing.turno && op.turno) {
+                        rawMap.set(id, { ...existing, turno: op.turno });
+                    } else if (!existing.area && op.area) {
+                        rawMap.set(id, { ...existing, area: op.area });
                     }
                 }
             });
 
-            setStaff(Array.from(masterMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            // 4. Revisar de nuevo con los de performance
+            for (const k of [...rawMap.keys()]) {
+                if (!rawMap.has(k)) continue; // ya fue eliminado en iteración previa
+                for (const other of [...rawMap.keys()]) {
+                    if (k === other || !rawMap.has(k) || !rawMap.has(other)) continue;
+                    const entry1 = rawMap.get(k);
+                    const entry2 = rawMap.get(other);
+                    if (!entry1 || !entry2) continue;
+                    const name1 = (entry1.name || "").toUpperCase().replace(/\s+/g, "");
+                    const name2 = (entry2.name || "").toUpperCase().replace(/\s+/g, "");
+                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
+                        const best = name1.length >= name2.length ? k : other;
+                        const worst = name1.length >= name2.length ? other : k;
+                        if (rawMap.has(worst) && rawMap.has(best)) {
+                            rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
+                            rawMap.delete(worst);
+                        }
+                    }
+                }
+            }
+
+            setStaff(Array.from(rawMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         } catch (e) {
             console.error("Error loading staff grid:", e);
         }
@@ -4600,7 +4880,19 @@ function ViewGestorPersonal({ user, onBack }) {
         try {
             const success = await updateStaffField(normName, field, value);
             if (success !== false) {
-                setStaff(prev => prev.map(s => s.normName === normName ? { ...s, [field]: value } : s));
+                setStaff(prev => {
+                    // Buscar por normName exacto, luego por coincidencia de nombre
+                    let found = prev.find(s => s.normName === normName);
+                    if (!found) {
+                        const noSpaces = normName.replace(/\s+/g, "");
+                        found = prev.find(s => (s.name || "").replace(/\s+/g, "").toUpperCase() === noSpaces);
+                    }
+                    if (found) {
+                        return prev.map(s => s === found ? { ...s, [field]: value } : s);
+                    }
+                    // Si no encontramos, actualizar por normName igual
+                    return prev.map(s => s.normName === normName ? { ...s, [field]: value } : s);
+                });
             } else {
                 console.error("handleUpdateFieldDirect: update failed");
             }
