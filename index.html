@@ -27,12 +27,16 @@
       }
       try {
         const { initializeApp }   = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-        const { getFirestore }    = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-        const { getAuth }         = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+        const fsMod               = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const authMod             = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+        const { getFirestore }    = fsMod;
+        const { getAuth }         = authMod;
 
         const app     = initializeApp(window.FIREBASE_CONFIG);
         window.db     = getFirestore(app);
         window.auth   = getAuth(app);
+        window.__fs   = fsMod;   // cache: firestore module
+        window.__auth = authMod; // cache: auth module
         console.log("✓ Firebase inicializado:", window.FIREBASE_CONFIG.projectId);
         return window.db;
       } catch (e) {
