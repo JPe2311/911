@@ -718,7 +718,7 @@ function TurnoDetailView({ report, onBack }) {
     if (pctAbNum > 25) alertas.push({ level:"red", msg:`Tasa de abandono elevada: ${pctAband}% (supera el 25%)` });
     else if (pctAbNum >= 15) alertas.push({ level:"orange", msg:`Tasa de abandono moderada: ${pctAband}% — monitorear` });
     else if (pctAbNum > 0) alertas.push({ level:"green", msg:`Tasa de abandono dentro del rango aceptable: ${pctAband}%` });
-    if (tC > 120) alertas.push({ level:"red", msg:`Tiempo Creación→Despacho excede la meta: ${fmtSeconds(tC)} (meta: 2')` });
+    if (tC > 120) alertas.push({ level:"red", msg:`Tiempo Creación→Derivación excede la meta: ${fmtSeconds(tC)} (meta: 2')` });
     if (tI > 30) alertas.push({ level:"orange", msg:`Tiempo Derivación→Inicio elevado: ${fmtSeconds(tI)} (meta: 30")` });
     const peakHour = ivs.reduce((mx,i) => i.ofrecidas > (mx.ofrecidas||0) ? i : mx, {});
     if (peakHour.hora) alertas.push({ level:"blue", msg:`Pico de demanda registrado a las ${peakHour.hora}: ${peakHour.ofrecidas} llamadas ofrecidas.` });
@@ -785,9 +785,9 @@ function TurnoDetailView({ report, onBack }) {
                 React.createElement(SectionTitle, { icon: "⏱️" }, "Tiempos de Respuesta (SLA)"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
                     [
-                        { label:"Creación → Despacho",  val: tC, meta: 120 },
+                        { label:"Creación → Derivación",  val: tC, meta: 120 },
                         { label:"Derivación → Inicio",   val: tD, meta: 30  },
-                        { label:"Inicio → Despacho",     val: tI, meta: 120 },
+                        { label:"Inicio → Asignación",     val: tI, meta: 120 },
                     ].map(t => React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 12 } },
                         React.createElement("div", null,
                             React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: D.textMid } }, t.label),

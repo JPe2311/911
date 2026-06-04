@@ -1580,9 +1580,9 @@ function ViewReporteHistorial({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta Registrados"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación → Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
-                        { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
+                        { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
                             React.createElement("div", { style: { fontSize: 11, fontWeight: 800, color: C.navy } }, t.label),
@@ -1623,16 +1623,6 @@ function ViewReporteHistorial({ data }) {
                         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
                             React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: C.green, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, i + 1),
                             React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.navy } }, a.nombre.split(",")[0])
-                        ),
-                        React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
-                    ))
-                ),
-                React.createElement("div", null,
-                    React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12 } }, "⚠️ MENOR ACTIVIDAD"),
-                    agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
-                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("span", { style: { fontSize: 12, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0])
                         ),
                         React.createElement("div", { style: { textAlign: "right", fontWeight: 900, fontSize: 13, color: C.navy } }, a.contestadas)
                     ))
@@ -1790,9 +1780,9 @@ function ViewResumen({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta (SLA)"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
                     [
-                        { label: "Creación → Despacho", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación → Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
-                        { label: "Inicio → Despacho", val: gaugeData.tiempoInicioDespacho, meta: 120 }
+                        { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
                         React.createElement("div", { key: t.label, style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", background: "#f1f5f9", borderRadius: 12 } },
                             React.createElement("div", null,
@@ -1829,7 +1819,7 @@ function ViewResumen({ data }) {
         // --- DESEMPEÑO POR OPERADOR Y RANKINGS ---
         React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1.8fr 1.2fr", gap: 20, marginBottom: 20 } },
             agentesData && React.createElement(Card, null,
-                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Rendimiento por Operador (Top 15 Atendidas)"),
+                React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 14 } }, "👤 Gestión por Operador"),
                 React.createElement("div", { style: { height: 350 } }, React.createElement(ChartBar, { id: "master-chart-agentes", data: agentesData, options: { responsive: true, maintainAspectRatio: false, indexAxis: "y", plugins: { legend: { position: "bottom" } } } }))
             ),
             React.createElement(Card, { style: { padding: "20px 0" } },
@@ -2378,7 +2368,7 @@ function ViewHistorial({ user, onBack, onLoadReport }) {
                 React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 } },
                     React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
                         React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.blue } }, fmtSeconds(avg(dpI))),
-                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Inicio → Despacho")
+                        React.createElement("div", { style: { fontSize: 10, color: C.gray } }, "Inicio → Asignación")
                     ),
                     React.createElement("div", { style: { background: C.bg, padding: 10, borderRadius: 8, textAlign: "center" } },
                         React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.orange } }, fmtSeconds(avg(dpD))),
