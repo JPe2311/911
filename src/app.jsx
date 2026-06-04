@@ -1150,16 +1150,30 @@ async function getPerformanceByGroup(month, year, areaFilter = "all", turnoFilte
         getStaffList()
     ]);
 
+    // Construir staffMap con doble clave: normName exacto y normName sin espacios
     const staffMap = {};
-    staff.forEach(s => { staffMap[s.normName] = s; });
+    staff.forEach(s => {
+        const n = s.normName || "";
+        staffMap[n] = s;
+        // También guardar sin espacios para matching flexible
+        const noSpaces = n.replace(/\s+/g, "");
+        if (noSpaces && noSpaces !== n) staffMap[noSpaces] = s;
+    });
 
     const groups = {};
     perf.forEach(p => {
-        const s = staffMap[p.normName] || {};
+        // Buscar staff: primero por normName exacto, luego sin espacios
+        const perfNorm = (p.normName || "").trim();
+        let s = staffMap[perfNorm];
+        if (!s) {
+            const perfNoSpaces = perfNorm.replace(/\s+/g, "");
+            s = staffMap[perfNoSpaces] || {};
+        }
         if (areaFilter !== "all" && s.area !== areaFilter) return;
         if (turnoFilter !== "all" && s.turno !== turnoFilter) return;
 
-        const group = s.turno || s.grupo || "Sin Turno";
+        // Si hay staff asignado, usar su turno/grupo; si no, usar grupo del performance data
+        const group = s.turno || s.grupo || (s.normName ? "Sin Turno" : p.grupo || "Sin Turno");
         if (!groups[group]) {
             groups[group] = {
                 group,
@@ -2079,48 +2093,85 @@ function ViewDespacho({ data }) {
     if (!dpI.length && !dpD.length && !dpC.length)
         return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá los archivos de tiempos de despacho.");
 
+    const etapas = [
+        { id: "dpC", title: "📋 Creación Evento → Derivación", dataset: dpC },
+        { id: "dpD", title: "🔄 Derivación → Despacho", dataset: dpD },
+        { id: "dpI", title: "⏱ Inicio Despacho → Asignación", dataset: dpI }
+    ].filter(e => e.dataset.length > 0);
+
     return React.createElement("div", null,
         React.createElement(SectionTitle, { num: "4", title: "Tiempos de Despacho por Distrito", sub: "Un ranking por cada métrica de tiempo" }),
-        dpC.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "📋 Creación Evento → Derivación",
-            subtitle: `${dpC.length} distritos — tiempo desde la creación del evento hasta el despacho`,
-            dataset: dpC,
-        }),
-        dpD.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "🔄 Derivación → Despacho",
-            subtitle: `${dpD.length} distritos — tiempo desde derivación hasta inicio del despacho`,
-            dataset: dpD,
-        }),
-        dpI.length > 0 && React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
-        React.createElement(DespachoSection, {
-            title: "⏱ Inicio Despacho → Asignación",
-            subtitle: `${dpI.length} distritos — tiempo desde inicio del despacho hasta asignación`,
-            dataset: dpI,
-        })
+        React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 24px" } }),
+
+        // ── TOP 3 de todas las etapas agrupados ──
+        React.createElement("div", { style: { marginBottom: 32 } },
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy, marginBottom: 16 } }, "🏆 Top 3 — Mejores y Peores Tiempos"),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300, 1fr))", gap: 16 } },
+                etapas.map(e => {
+                    const sorted = [...e.dataset].sort((a, b) => a.tiempoSec - b.tiempoSec);
+                    const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
+                    const top3 = sorted.slice(0, 3);
+                    const bot3 = sorted.slice(-3).reverse();
+                    return React.createElement("div", { key: e.id },
+                        React.createElement("div", { style: { fontWeight: 700, fontSize: 12, color: C.navy, marginBottom: 10 } }, e.title),
+                        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
+                            React.createElement(Card, { style: { padding: "12px 14px" } },
+                                React.createElement("div", { style: { fontWeight: 700, fontSize: 10, color: "#065f46", marginBottom: 8 } }, "🏆 Menor tiempo"),
+                                top3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: "top", compact: true }))
+                            ),
+                            React.createElement(Card, { style: { padding: "12px 14px" } },
+                                React.createElement("div", { style: { fontWeight: 700, fontSize: 10, color: C.red, marginBottom: 8 } }, "⚠️ Mayor tiempo"),
+                                bot3.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: sorted.length - i, variant: "bot", compact: true }))
+                            )
+                        )
+                    );
+                })
+            )
+        ),
+
+        // ── Separador ──
+        React.createElement("div", { style: { height: 1, background: C.border, margin: "8px 0 32px" } }),
+
+        // ── Rankings completos de todas las etapas ──
+        React.createElement("div", null,
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 16, color: C.navy, marginBottom: 16 } }, "📊 Rankings Completos"),
+            etapas.map(e => {
+                const sorted = [...e.dataset].sort((a, b) => a.tiempoSec - b.tiempoSec);
+                const maxSec = sorted[sorted.length - 1]?.tiempoSec || 1;
+                return React.createElement("div", { key: e.id, style: { marginBottom: 24 } },
+                    React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 2 } }, e.title),
+                    React.createElement("div", { style: { fontSize: 11, color: C.gray, marginBottom: 10 } }, `${sorted.length} distritos`),
+                    React.createElement(Card, null,
+                        sorted.map((d, i) => React.createElement(DistritoRow, { key: d.nombre, d, maxSec, rank: i + 1, variant: i < 3 ? "top" : i >= sorted.length - 3 ? "bot" : "mid", compact: false }))
+                    )
+                );
+            })
+        )
     );
 }
 
 
-function DistritoRow({ d, maxSec, rank, variant }) {
+function DistritoRow({ d, maxSec, rank, variant, compact }) {
     const pct = maxSec > 0 ? (d.tiempoSec / maxSec) * 100 : 0;
     const efPct = d.total > 0 ? (d.efectiva / d.total) * 100 : 0;
     const col = variant === "bot" ? C.red : variant === "top" ? C.green : C.mid;
     const bg = variant === "bot" ? C.redBg : variant === "top" ? C.greenBg : (rank % 2 === 0 ? "#f8fafc" : "#fff");
     const bdr = variant === "bot" ? "#fecaca" : variant === "top" ? "#86efac" : C.border;
 
-    return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: 5 } },
-        React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
-        React.createElement("div", { style: { width: 100, fontSize: 11, fontWeight: 700, color: C.navy } }, d.nombre),
-        React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8 } },
-            React.createElement(MiniBar, { pct, color: col }),
-            React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: col, minWidth: 70, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
-        ),
-        React.createElement("div", { style: { width: 80, textAlign: "right", fontSize: 11 } },
-            React.createElement("span", { style: { color: C.gray } }, `${d.efectiva}/${d.total} `),
-            React.createElement("span", { style: { fontWeight: 700, color: efPct >= 90 ? C.green : efPct >= 80 ? C.yellow : C.red } }, `(${efPct.toFixed(0)}%)`)
-        )
+    return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: compact ? 6 : 10, padding: compact ? "4px 6px" : "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: compact ? 3 : 5 } },
+        React.createElement("div", { style: { width: compact ? 20 : 24, height: compact ? 20 : 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: compact ? 8 : 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
+        React.createElement("div", { style: { fontSize: compact ? 10 : 11, fontWeight: 700, color: C.navy, flex: 1 } }, d.nombre),
+        compact ? React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: col, minWidth: 50, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
+            : React.createElement(React.Fragment, null,
+                React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8 } },
+                    React.createElement(MiniBar, { pct, color: col }),
+                    React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: col, minWidth: 70, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
+                ),
+                React.createElement("div", { style: { width: 80, textAlign: "right", fontSize: 11 } },
+                    React.createElement("span", { style: { color: C.gray } }, `${d.efectiva}/${d.total} `),
+                    React.createElement("span", { style: { fontWeight: 700, color: efPct >= 90 ? C.green : efPct >= 80 ? C.yellow : C.red } }, `(${efPct.toFixed(0)}%)`)
+                )
+            )
     );
 }
 
