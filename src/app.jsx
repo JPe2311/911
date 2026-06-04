@@ -1594,7 +1594,7 @@ function ViewReporteHistorial({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta Registrados"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
                     [
-                        { label: "Creación → Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación a Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
                         { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
@@ -1794,7 +1794,7 @@ function ViewResumen({ data }) {
                 React.createElement("div", { style: { fontWeight: 800, fontSize: 14, color: C.navy, marginBottom: 16, textTransform: "uppercase" } }, "⏱️ Tiempos de Respuesta (SLA)"),
                 React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 14 } },
                     [
-                        { label: "Creación → Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
+                        { label: "Creación a Derivación", val: gaugeData.tiempoCreacionDespacho, meta: 120 },
                         { label: "Derivación → Inicio", val: gaugeData.tiempoDerivacionInicio, meta: 30 },
                         { label: "Inicio → Asignación", val: gaugeData.tiempoInicioDespacho, meta: 120 }
                     ].map(t => (
@@ -2094,9 +2094,9 @@ function ViewDespacho({ data }) {
         return React.createElement("div", { style: { padding: 40, textAlign: "center", color: C.gray } }, "Cargá los archivos de tiempos de despacho.");
 
     const etapas = [
-        { id: "dpC", title: "📋 Creación Evento → Derivación", dataset: dpC },
-        { id: "dpD", title: "🔄 Derivación → Despacho", dataset: dpD },
-        { id: "dpI", title: "⏱ Inicio Despacho → Asignación", dataset: dpI }
+        { id: "dpC", title: "📋 Creación a Derivación", dataset: dpC },
+        { id: "dpD", title: "🔄 Derivación a Inicio", dataset: dpD },
+        { id: "dpI", title: "⏱ Inicio a Asignación", dataset: dpI }
     ].filter(e => e.dataset.length > 0);
 
     return React.createElement("div", null,
@@ -2160,8 +2160,18 @@ function DistritoRow({ d, maxSec, rank, variant, compact }) {
 
     return React.createElement("div", { style: { display: "flex", alignItems: "center", gap: compact ? 6 : 10, padding: compact ? "4px 6px" : "8px 10px", background: bg, borderRadius: 8, border: `1px solid ${bdr}`, marginBottom: compact ? 3 : 5 } },
         React.createElement("div", { style: { width: compact ? 20 : 24, height: compact ? 20 : 24, borderRadius: "50%", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: compact ? 8 : 10, fontWeight: 900, color: "#fff", flexShrink: 0 } }, rank),
-        React.createElement("div", { style: { fontSize: compact ? 10 : 11, fontWeight: 700, color: C.navy, flex: 1 } }, d.nombre),
-        compact ? React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: col, minWidth: 50, textAlign: "right" } }, fmtSeconds(d.tiempoSec))
+        React.createElement("div", { style: { fontSize: compact ? 10 : 11, fontWeight: 700, color: C.navy, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, d.nombre),
+        compact
+            ? React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 } },
+                React.createElement("div", { style: { width: 60, height: 4, borderRadius: 2, background: "#e2e8f0", overflow: "hidden" } },
+                React.createElement("div", { style: { height: "100%", width: `${pct}%`, background: col, borderRadius: 2 } })
+                ),
+                React.createElement("span", { style: { fontSize: 14, fontWeight: 900, color: col, minWidth: 54, textAlign: "right", fontVariantNumeric: "tabular-nums" } }, fmtSeconds(d.tiempoSec)),
+                React.createElement("div", { style: { textAlign: "right" } },
+                    React.createElement("div", { style: { fontSize: 9, fontWeight: 700, color: efPct >= 90 ? "#065f46" : efPct >= 80 ? C.yellow : C.red } }, `${efPct.toFixed(0)}%`),
+                    React.createElement("div", { style: { fontSize: 8, color: C.gray } }, `${d.efectiva}/${d.total}`)
+                )
+            )
             : React.createElement(React.Fragment, null,
                 React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "center", gap: 8 } },
                     React.createElement(MiniBar, { pct, color: col }),
