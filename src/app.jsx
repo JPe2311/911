@@ -983,24 +983,44 @@ async function getUniqueOperators() {
     const map = new Map();
     snap.docs.forEach(d => {
         const data = d.data();
-        if (!map.has(data.normName)) {
-            map.set(data.normName, { normName: data.normName, name: data.name });
+        const key = (data.normName || "").replace(/\s+/g, "");
+        if (key && !map.has(key)) {
+            map.set(key, { normName: data.normName, name: data.name });
         }
     });
     return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
-async function getGroupAverages(year) {
+async function getGroupAverages(year, area = null) {
     const db = getDB();
     if (!db) return {};
     const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
-    const months = {}; // { "01": { sumC: 0, sumProd: 0, count: 0, ... } }
+
+    // Build area map from staff if filtering by area
+    let areaMap = null;
+    if (area) {
+        const staffSnap = await getDocs(collection(db, "staff"));
+        areaMap = {};
+        staffSnap.docs.forEach(sd => {
+            const s = sd.data();
+            const norm = sd.id;
+            const sArea = s.area || "";
+            areaMap[norm] = sArea;
+        });
+    }
+
+    const months = {};
 
     snap.docs.forEach(d => {
         const p = d.data();
+        // Skip if filtering by area and operator doesn't match
+        if (area && areaMap) {
+            const opArea = areaMap[p.normName] || "";
+            if (opArea !== area) return;
+        }
         const m = p.month;
         if (!months[m]) months[m] = { c: 0, o: 0, ab: 0, prod: 0, avisando: 0, manejo: 0, count: 0 };
         months[m].c += p.c;
@@ -4560,10 +4580,18 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
         setLoading(true);
         Promise.all([
             getOperatorHistory(selectedAgent, year),
-            getGroupAverages(year)
-        ]).then(([h, g]) => {
+            getGroupAverages(year),
+            getStaffList()
+        ]).then(([h, g, staff]) => {
             setHistory(h);
-            setGroupAvg(g);
+            // Find operator's area from staff
+            const opArea = selectedAgent ? (staff.find(s => s.normName === selectedAgent)?.area || null) : null;
+            // If operator has an area, reload averages filtered by that area
+            if (opArea) {
+                getGroupAverages(year, opArea).then(ga => setGroupAvg(ga));
+            } else {
+                setGroupAvg(g);
+            }
             setLoading(false);
         });
     }, [selectedAgent, year]);
@@ -4571,13 +4599,14 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     const stats = useMemo(() => {
         if (!history.length) return null;
         const totalC = history.reduce((s, h) => s + h.c, 0);
+        const totalAb = history.reduce((s, h) => s + (h.ab || 0), 0);
         const avgEff = (history.reduce((s, h) => s + h.pctProd, 0) / history.length).toFixed(1);
         const avgProd = (history.reduce((s, h) => {
             const hrs = (h.totalConectado / 3600) || 1;
             return s + (h.c / hrs);
         }, 0) / history.length).toFixed(1);
 
-        return { totalC, avgEff, avgProd };
+        return { totalC, totalAb, avgEff, avgProd };
     }, [history]);
 
     const chartData = useMemo(() => {
@@ -4646,8 +4675,9 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
 
         selectedAgent && !loading && stats && React.createElement("div", { className: "animate-fade" },
             // KPIs
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 } },
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
                 React.createElement(StatKpi, { label: "Total Atendidas (Año)", value: stats.totalC.toLocaleString(), accent: C.blue }),
+                React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAb.toLocaleString(), accent: C.red }),
                 React.createElement(StatKpi, { label: "Eficiencia Avg", value: `${stats.avgEff}%`, sub: "% Voz Preparada", accent: C.green }),
                 React.createElement(StatKpi, { label: "Productividad Avg", value: stats.avgProd, sub: "Contestadas / Hora", accent: C.mid })
             ),
@@ -4675,7 +4705,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Mes", "Contestadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
+                            ["Mes", "Contestadas", "Abandonadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
@@ -4687,6 +4717,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                             return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 800, color: C.navy } }, MONTH_NAMES[h.month] || h.month),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700 } }, h.c),
+                                React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.red } }, h.ab || 0),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.blue } }, prod),
                                 React.createElement("td", { style: { padding: "12px 20px", color: C.green, fontWeight: 700 } }, `${h.pctProd}%`),
                                 React.createElement("td", { style: { padding: "12px 20px", color: C.orange, fontWeight: 700 } }, `${h.pctNoProd}%`),
