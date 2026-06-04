@@ -4825,84 +4825,51 @@ function ViewGestorPersonal({ user, onBack }) {
             setTurnos(tList);
             setAreas(aList);
 
-            // 1. Cargar personal ya registrado normalizando el ID
+            // 1. Cargar personal ya registrado, deduplicando por ID sin espacios
             const rawMap = new Map();
             registered.forEach(s => {
-                const id = normalizeName(s.normName || s.name);
-                if (id) {
-                    // Si ya existe, conservar el que tenga más datos (turno, area etc.)
-                    const existing = rawMap.get(id);
-                    if (existing && !existing.turno && s.turno) {
-                        rawMap.set(id, { ...existing, ...s, normName: id });
-                    } else if (!existing) {
-                        rawMap.set(id, { ...s, normName: id });
-                    }
+                const rawId = s.normName || s.name || "";
+                const id = normalizeName(rawId).replace(/\s+/g, "");
+                if (!id) return;
+                const existing = rawMap.get(id);
+                if (existing) {
+                    // Fusionar: si el existente no tiene turno/area y el nuevo sí, actualizar
+                    rawMap.set(id, { ...existing, ...s, normName: existing.normName || s.normName });
+                } else {
+                    rawMap.set(id, { ...s, normName: id });
                 }
             });
 
-            // 2. Buscar duplicados: personas cuyo normName esté contenido en otro
-            //    (ej: "ABALOSJOAQUIN" contenido en "ABALOS JOAQUIN")
-            const uniqueKeys = new Set(rawMap.keys());
-            for (const k of uniqueKeys) {
-                if (!rawMap.has(k)) continue;
-                for (const other of uniqueKeys) {
-                    if (k === other || !rawMap.has(other)) continue;
-                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
-                    // Si un nombre está contenido dentro del otro, fusionar
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                        rawMap.delete(worst);
-                    }
-                }
-            }
-
-            // 3. Cargar operadores con desempeño que NO estén en personal
+            // 2. Operadores con desempeño que NO estén en personal
             performance.forEach(op => {
-                const id = normalizeName(op.normName || op.name);
-                if (id && !rawMap.has(id)) {
-                    rawMap.set(id, { 
-                        ...op, 
-                        normName: id,
-                        turno: "—", 
-                        area: "—" 
-                    });
-                } else if (id && rawMap.has(id)) {
+                const id = normalizeName(op.normName || op.name).replace(/\s+/g, "");
+                if (!id) return;
+                if (rawMap.has(id)) {
                     const existing = rawMap.get(id);
-                    if (!existing.name && op.name) {
-                        rawMap.set(id, { ...existing, name: op.name });
-                    } else if (!existing.turno && op.turno) {
-                        rawMap.set(id, { ...existing, turno: op.turno });
-                    } else if (!existing.area && op.area) {
-                        rawMap.set(id, { ...existing, area: op.area });
-                    }
+                    if (existing.turno && existing.area) return; // ya tiene todo
+                    rawMap.set(id, { ...existing, ...op, normName: existing.normName || id });
+                } else {
+                    rawMap.set(id, {
+                        ...op,
+                        normName: id,
+                        turno: "—",
+                        area: "—"
+                    });
                 }
             });
 
-            // 4. Revisar de nuevo con los de performance
-            for (const k of [...rawMap.keys()]) {
-                if (!rawMap.has(k)) continue; // ya fue eliminado en iteración previa
-                for (const other of [...rawMap.keys()]) {
-                    if (k === other || !rawMap.has(k) || !rawMap.has(other)) continue;
-                    const entry1 = rawMap.get(k);
-                    const entry2 = rawMap.get(other);
-                    if (!entry1 || !entry2) continue;
-                    const name1 = (entry1.name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (entry2.name || "").toUpperCase().replace(/\s+/g, "");
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        if (rawMap.has(worst) && rawMap.has(best)) {
-                            rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                            rawMap.delete(worst);
-                        }
-                    }
-                }
-            }
+            // 3. Convertir a array y asignar nombre visible
+            const merged = Array.from(rawMap.values()).map(s => {
+                // Buscar el mejor name visible (del staff o del performance)
+                const staffEntry = registered.find(r => normalizeName(r.normName || r.name).replace(/\s+/g, "") === (s.normName || "").replace(/\s+/g, ""));
+                const perfEntry = performance.find(p => normalizeName(p.normName || p.name).replace(/\s+/g, "") === (s.normName || "").replace(/\s+/g, ""));
+                return {
+                    ...s,
+                    name: s.name || staffEntry?.name || perfEntry?.name || s.normName
+                };
+            });
 
-            setStaff(Array.from(rawMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            setStaff(merged.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         } catch (e) {
             console.error("Error loading staff grid:", e);
         }
