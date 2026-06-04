@@ -975,14 +975,36 @@ async function getOperatorHistory(normName, year) {
     if (!db || !normName) return [];
     const { collection, getDocs, query, where, orderBy } = await getFS();
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
-    const q = query(
+    // Buscar por normName exacto (usa índice existente)
+    const results = [];
+    // 1. Consulta con el normName original
+    const q1 = query(
         collection(db, "operator_performance"),
         where("normName", "==", normName),
         where("year", "==", yearNum),
         orderBy("month", "desc")
     );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data());
+    const snap1 = await getDocs(q1);
+    snap1.docs.forEach(d => {
+        const data = d.data();
+        if (!results.some(r => r.month === data.month)) results.push(data);
+    });
+    // 2. Consulta con normName sin espacios (cubre variante antigua "SILVERAAGUSTIN")
+    const altNorm = normName.replace(/\s+/g, "");
+    if (altNorm !== normName) {
+        const q2 = query(
+            collection(db, "operator_performance"),
+            where("normName", "==", altNorm),
+            where("year", "==", yearNum),
+            orderBy("month", "desc")
+        );
+        const snap2 = await getDocs(q2);
+        snap2.docs.forEach(d => {
+            const data = d.data();
+            if (!results.some(r => r.month === data.month)) results.push(data);
+        });
+    }
+    return results.sort((a, b) => (b.month || "").localeCompare(a.month || ""));
 }
 
 async function getStaffTurnoArea(normName, month, year) {
@@ -1007,6 +1029,34 @@ async function getStaffTurnoArea(normName, month, year) {
     if (doc.field === "turno") result.turno = doc.value;
     if (doc.field === "area") result.area = doc.value;
     return result;
+}
+
+async function getOperatorAreaHistory(normName) {
+    await window.dbReady;
+    const db = getDB();
+    if (!db || !normName) return {};
+    const { collection, getDocs, query, where, orderBy } = await getFS();
+    const q = query(
+        collection(db, "staff_history"),
+        where("normName", "==", normName),
+        where("field", "==", "area"),
+        orderBy("timestamp", "asc")
+    );
+    const snap = await getDocs(q);
+    const areaMap = {}; // { "2025-01": "Area A", "2025-02": "Area B" }
+    let lastArea = null;
+    snap.docs.forEach(d => {
+        const data = d.data();
+        const key = `${data.year}-${data.month}`;
+        lastArea = data.value;
+        areaMap[key] = data.value;
+    });
+    // Fill gaps: months without explicit area get the last known area
+    if (Object.keys(areaMap).length > 0) {
+        // Get all months where operator has performance data
+        // (filled in ViewPerfilOperador using the history data)
+    }
+    return { areaMap, lastArea };
 }
 
 async function getUniqueOperators() {
@@ -4615,6 +4665,8 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     const [history, setHistory] = useState([]);
     const [groupAvg, setGroupAvg] = useState({});
     const [opArea, setOpArea] = useState(null);
+    const [areaHistory, setAreaHistory] = useState({});
+    const [areaFilterProf, setAreaFilterProf] = useState("all");
     const [loading, setLoading] = useState(false);
 
     useEffect(() => { getUniqueOperators().then(setAgents); }, []);
@@ -4622,63 +4674,93 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     useEffect(() => {
         if (!selectedAgent) return;
         setLoading(true);
-        // First get staff to find operator's area, then fetch history + averages with area filter
-        getStaffList().then(staff => {
+        setAreaFilterProf("all");
+        Promise.all([
+            getOperatorHistory(selectedAgent, year),
+            getGroupAverages(year),
+            getStaffList(),
+            getOperatorAreaHistory(selectedAgent)
+        ]).then(([h, g, staff, areaRes]) => {
+            setHistory(h);
+            // Build month→area map, fill gaps with last known area
+            const aHist = areaRes.areaMap || {};
+            const areaByMonth = {};
+            let lastKnown = null;
+            // Iterate months 01-12 in order to fill gaps
+            for (let m = 1; m <= 12; m++) {
+                const mStr = m.toString().padStart(2, "0");
+                const key = `${year}-${mStr}`;
+                if (aHist[key]) {
+                    lastKnown = aHist[key];
+                }
+                areaByMonth[mStr] = lastKnown || null;
+            }
+            // Override with explicit entries (in case they span different years)
+            Object.keys(aHist).forEach(k => {
+                const parts = k.split("-");
+                if (parts.length === 2) areaByMonth[parts[1]] = aHist[k];
+            });
+            setAreaHistory(areaByMonth);
+            // Find operator's current area from staff
             const staffEntry = staff.find(s => s.normName === selectedAgent) || staff.find(s => (s.name ? normalizeName(s.name) : "") === selectedAgent);
-            const area = (staffEntry?.area || null);
-            setOpArea(area);
+            setOpArea(staffEntry?.area || areaRes.lastArea || null);
+            // Group averages: use current area or general
+            const avgArea = staffEntry?.area || null;
             Promise.all([
-                getOperatorHistory(selectedAgent, year),
-                getGroupAverages(year, area || undefined)
-            ]).then(([h, g]) => {
-                setHistory(h);
-                setGroupAvg(g);
+                avgArea ? getGroupAverages(year, avgArea) : g
+            ]).then(([ga]) => {
+                setGroupAvg(ga);
                 setLoading(false);
             });
         });
     }, [selectedAgent, year]);
 
+    const filteredHistory = useMemo(() => {
+        if (!history.length || areaFilterProf === "all") return history;
+        return history.filter(h => areaHistory[h.month] === areaFilterProf);
+    }, [history, areaFilterProf, areaHistory]);
+
     const stats = useMemo(() => {
-        if (!history.length) return null;
-        const totalC = history.reduce((s, h) => s + h.c, 0);
-        const totalAb = history.reduce((s, h) => s + (h.ab || 0), 0);
-        const avgEff = (history.reduce((s, h) => s + h.pctProd, 0) / history.length).toFixed(1);
-        const avgProd = (history.reduce((s, h) => {
+        if (!filteredHistory.length) return null;
+        const totalC = filteredHistory.reduce((s, h) => s + h.c, 0);
+        const totalAb = filteredHistory.reduce((s, h) => s + (h.ab || 0), 0);
+        const avgEff = (filteredHistory.reduce((s, h) => s + h.pctProd, 0) / filteredHistory.length).toFixed(1);
+        const avgProd = (filteredHistory.reduce((s, h) => {
             const hrs = (h.totalConectado / 3600) || 1;
             return s + (h.c / hrs);
-        }, 0) / history.length).toFixed(1);
+        }, 0) / filteredHistory.length).toFixed(1);
 
         return { totalC, totalAb, avgEff, avgProd };
-    }, [history]);
+    }, [filteredHistory]);
 
     const chartData = useMemo(() => {
-        if (!history.length) return null;
-        const labels = history.map(h => MONTH_NAMES[h.month] || h.month);
+        if (!filteredHistory.length) return null;
+        const labels = filteredHistory.map(h => MONTH_NAMES[h.month] || h.month);
 
         return {
             volume: {
                 labels,
                 datasets: [
-                    { label: "Contestadas (Op)", data: history.map(h => h.c), backgroundColor: C.blue, borderRadius: 6 },
-                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgC || 0), backgroundColor: "rgba(148,163,184,0.3)", borderRadius: 6 }
+                    { label: "Contestadas (Op)", data: filteredHistory.map(h => h.c), backgroundColor: C.blue, borderRadius: 6 },
+                    { label: "Promedio Grupo", data: filteredHistory.map(h => groupAvg[h.month]?.avgC || 0), backgroundColor: "rgba(148,163,184,0.3)", borderRadius: 6 }
                 ]
             },
             efficiency: {
                 labels,
                 datasets: [
-                    { label: "% Voz Prep (Op)", data: history.map(h => h.pctProd), borderColor: C.green, backgroundColor: "rgba(22,163,74,0.1)", fill: true, tension: 0.3 },
-                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgProd || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
+                    { label: "% Voz Prep (Op)", data: filteredHistory.map(h => h.pctProd), borderColor: C.green, backgroundColor: "rgba(22,163,74,0.1)", fill: true, tension: 0.3 },
+                    { label: "Promedio Grupo", data: filteredHistory.map(h => groupAvg[h.month]?.avgProd || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
                 ]
             },
             handling: {
                 labels,
                 datasets: [
-                    { label: "T. Manejo (Op)", data: history.map(h => h.avgManejo), borderColor: "#7c3aed", tension: 0.3 },
-                    { label: "Promedio Grupo", data: history.map(h => groupAvg[h.month]?.avgManejo || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
+                    { label: "T. Manejo (Op)", data: filteredHistory.map(h => h.avgManejo), borderColor: "#7c3aed", tension: 0.3 },
+                    { label: "Promedio Grupo", data: filteredHistory.map(h => groupAvg[h.month]?.avgManejo || 0), borderColor: C.gray, borderDash: [5, 5], tension: 0.3 }
                 ]
             }
         };
-    }, [history, groupAvg]);
+    }, [filteredHistory, groupAvg]);
 
     return React.createElement("div", { className: "animate-fade" },
         // Header
@@ -4705,6 +4787,17 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                     style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700 }
                 },
                     ["2025", "2026", "2027"].map(y => React.createElement("option", { key: y, value: y }, y))
+                ),
+                // Area filter dropdown
+                React.createElement("select", {
+                    value: areaFilterProf,
+                    onChange: e => setAreaFilterProf(e.target.value),
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, color: C.navy }
+                },
+                    React.createElement("option", { value: "all" }, "Todas las áreas"),
+                    [...new Set(Object.values(areaHistory).filter(Boolean))].map(a =>
+                        React.createElement("option", { key: a, value: a }, a)
+                    )
                 )
             )
         ),
@@ -4754,17 +4847,18 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
                 React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
                     React.createElement("thead", null,
                         React.createElement("tr", { style: { background: "#f1f5f9", textAlign: "left" } },
-                            ["Mes", "Contestadas", "Abandonadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
+                            ["Mes", "Área", "Contestadas", "Abandonadas", "Prod (At/Hr)", "% Voz Prep.", "% Voz No Prep.", "Puntaje Calidad"].map(h =>
                                 React.createElement("th", { key: h, style: { padding: "12px 20px", fontSize: 10, fontWeight: 800, color: C.gray, textTransform: "uppercase" } }, h)
                             )
                         )
                     ),
                     React.createElement("tbody", null,
-                        history.map((h, i) => {
+                        filteredHistory.map((h, i) => {
                             const hrs = (h.totalConectado / 3600) || 1;
                             const prod = (h.c / hrs).toFixed(1);
                             return React.createElement("tr", { key: h.month, style: { borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "#fff" : "#fafafa" } },
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 800, color: C.navy } }, MONTH_NAMES[h.month] || h.month),
+                                React.createElement("td", { style: { padding: "12px 20px", fontSize: 11, color: C.mid, fontWeight: 600 } }, areaHistory[h.month] || "—"),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700 } }, h.c),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.red } }, h.ab || 0),
                                 React.createElement("td", { style: { padding: "12px 20px", fontWeight: 700, color: C.blue } }, prod),
