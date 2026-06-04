@@ -4644,7 +4644,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Perfil de Operador"),
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Perfil de Operador <CHANGE>"),
                     React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Análisis de trayectoria individual y comparativa")
                 )
             ),
