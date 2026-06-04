@@ -983,8 +983,9 @@ async function getUniqueOperators() {
     const map = new Map();
     snap.docs.forEach(d => {
         const data = d.data();
-        if (!map.has(data.normName)) {
-            map.set(data.normName, { normName: data.normName, name: data.name });
+        const key = (data.normName || "").replace(/\s+/g, "");
+        if (key && !map.has(key)) {
+            map.set(key, { normName: data.normName, name: data.name });
         }
     });
     return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
