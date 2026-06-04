@@ -341,6 +341,34 @@ function parseDespacho(raw, type = "despacho") {
 }
 
 
+// ─── SIMPLE IN-MEMORY CACHE ──────────────────────────────────────────────
+const cache = new Map();
+const CACHE_TTL = 60000; // 60 seconds
+function cacheGet(key) {
+    const entry = cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return null; }
+    return entry.data;
+}
+function cacheSet(key, data) { cache.set(key, { data, ts: Date.now() }); }
+function cacheClear() { cache.clear(); }
+
+// ─── CACHED FIREBASE MODULES ────────────────────────────────────────────
+let _fsMod = null;
+async function getFS() {
+    if (_fsMod) return _fsMod;
+    if (window.__fs) { _fsMod = window.__fs; return _fsMod; }
+    _fsMod = await getFS();
+    return _fsMod;
+}
+let _authMod = null;
+async function getAuthMod() {
+    if (_authMod) return _authMod;
+    if (window.__auth) { _authMod = window.__auth; return _authMod; }
+    _authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+    return _authMod;
+}
+
 // ─── OPERATOR PERFORMANCE HELPERS ───────────────────────────────────────────
 function normalizeName(name) {
     if (!name || typeof name !== "string") return "";
@@ -604,7 +632,7 @@ async function saveReportToFirestore(files, meta, user) {
     };
 
     try {
-        const { addDoc, collection, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { addDoc, collection, serverTimestamp } = await getFS();
         const docRef = await addDoc(collection(db, "informes"), {
             ...report,
             userDisplayName,
@@ -642,7 +670,7 @@ async function loadReportsFromFirestore(year = null) {
     const db = getDB();
     if (!db) return [];
     try {
-        const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { collection, query, orderBy, getDocs } = await getFS();
         const yearNum = year ? parseInt(year) : null;
         let q = query(
             collection(db, "informes"),
@@ -667,7 +695,7 @@ async function deleteReportFromFirestore(firestoreId) {
     const db = getDB();
     if (!db || !firestoreId) return false;
     try {
-        const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { doc, deleteDoc } = await getFS();
         await deleteDoc(doc(db, "informes", firestoreId));
         return true;
     } catch (e) {
@@ -680,7 +708,7 @@ async function deleteReportFromFirestore(firestoreId) {
 async function saveMensualToFirestore(data, meta, user) {
     const db = getDB();
     if (!db || !user?.uid) return null;
-    const { collection, query, where, getDocs, setDoc, doc, addDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, query, where, getDocs, setDoc, doc, addDoc, serverTimestamp } = await getFS();
     try {
         // 🔍 Buscar si ya existe un registro para este mes/año del mismo usuario
         const q = query(
@@ -721,7 +749,7 @@ async function saveMensualToFirestore(data, meta, user) {
 async function loadMensualFromFirestore() {
     const db = getDB();
     if (!db) return [];
-    const { collection, query, orderBy, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, query, orderBy, getDocs } = await getFS();
     try {
         const q = query(collection(db, "analisis_mensual"), orderBy("meta.year", "desc"), orderBy("meta.monthNum", "desc"));
         const snap = await getDocs(q);
@@ -737,7 +765,7 @@ async function loadMensualFromFirestore() {
 async function saveStaffToFirestore(list) {
     const db = getDB();
     if (!db) return;
-    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc, collection } = await getFS();
     const staffRef = collection(db, "staff");
     for (const s of list) {
         await setDoc(doc(staffRef, s.normName), s, { merge: true });
@@ -750,14 +778,14 @@ async function saveStaffToFirestore(list) {
 async function updateStaffGroup(normName, newGroup) {
     const db = getDB();
     if (!db) return;
-    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc } = await getFS();
     await setDoc(doc(db, "staff", normName), { grupo: newGroup }, { merge: true });
 }
 
 async function getGroups() {
     const db = getDB();
     if (!db) return [];
-    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs } = await getFS();
     const snap = await getDocs(collection(db, "staff"));
     const groups = new Set();
     snap.docs.forEach(d => { const g = d.data().grupo; if (g) groups.add(g); });
@@ -768,7 +796,7 @@ async function deleteStaff(normName) {
     const db = getDB();
     if (!db || !normName) return;
     try {
-        const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { doc, deleteDoc } = await getFS();
         await deleteDoc(doc(db, "staff", normName));
     } catch (e) {
         console.error("Error deleting staff:", e);
@@ -782,7 +810,7 @@ async function getConfigTurnos() {
     await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_TURNOS;
-    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, getDoc } = await getFS();
     const snap = await getDoc(doc(db, "config", "turnos"));
     return snap.exists() ? snap.data().lista : DEFAULT_TURNOS;
 }
@@ -791,7 +819,7 @@ async function saveConfigTurnos(lista) {
     await window.dbReady;
     const db = getDB();
     if (!db) return;
-    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc } = await getFS();
     await setDoc(doc(db, "config", "turnos"), { lista }, { merge: true });
 }
 
@@ -799,7 +827,7 @@ async function getConfigAreas() {
     await window.dbReady;
     const db = getDB();
     if (!db) return DEFAULT_AREAS;
-    const { doc, getDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, getDoc } = await getFS();
     const snap = await getDoc(doc(db, "config", "areas"));
     return snap.exists() ? snap.data().lista : DEFAULT_AREAS;
 }
@@ -808,7 +836,7 @@ async function saveConfigAreas(lista) {
     await window.dbReady;
     const db = getDB();
     if (!db) return;
-    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc } = await getFS();
     await setDoc(doc(db, "config", "areas"), { lista }, { merge: true });
 }
 
@@ -820,7 +848,7 @@ async function updateStaffField(normName, field, value) {
         const db = getDB();
         if (!db) { console.error("updateStaffField: db not available"); return false; }
         
-        const { doc, setDoc, collection, addDoc, getDocs, serverTimestamp, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { doc, setDoc, collection, addDoc, getDocs, serverTimestamp, deleteDoc } = await getFS();
         
         // Buscar si ya existe un documento staff con este mismo nombre (sin espacios)
         const allStaffSnap = await getDocs(collection(db, "staff"));
@@ -854,6 +882,8 @@ async function updateStaffField(normName, field, value) {
             console.log("✓ updateStaffField: saved", { normName, field, value });
         }
         
+        cacheClear(); // Staff changed, clear caches
+        
         // Registrar en historial
         await addDoc(collection(db, "staff_history"), {
             normName: targetNormName,
@@ -881,7 +911,7 @@ async function updateStaffArea(normName, newArea) {
 async function saveOperatorPerformance(list, month, year) {
     const db = getDB();
     if (!db || !list?.length || !month || !year) return;
-    const { doc, setDoc, query, where, getDocs, collection, writeBatch } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { doc, setDoc, query, where, getDocs, collection, writeBatch } = await getFS();
     const perfRef = collection(db, "operator_performance");
     const yearNum = typeof year === "string" ? parseInt(year) : year;
     const monthStr = typeof month === "string" ? month : month.toString().padStart(2, "0");
@@ -898,9 +928,10 @@ async function saveOperatorPerformance(list, month, year) {
         const saveBatch = writeBatch(db);
         for (const p of list) {
             const id = `${p.normName}_${month}_${year}`;
-            saveBatch.set(doc(perfRef, id), p); // Sin merge: true porque ya limpiamos
+            saveBatch.set(doc(perfRef, id), p);
         }
         await saveBatch.commit();
+        cacheClear(); // New data uploaded, clear caches
         return true;
     } catch (e) {
         console.error("Error saving performance:", e);
@@ -909,22 +940,26 @@ async function saveOperatorPerformance(list, month, year) {
 }
 
 async function getStaffList() {
+    const cached = cacheGet("staff");
+    if (cached) return cached;
     await window.dbReady;
     const db = getDB();
     if (!db) return [];
-    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs } = await getFS();
     const snap = await getDocs(collection(db, "staff"));
-    return snap.docs.map(d => ({
-        normName: d.id, // Asegurar que siempre tenga el ID como normName
+    const data = snap.docs.map(d => ({
+        normName: d.id,
         ...d.data()
     }));
+    cacheSet("staff", data);
+    return data;
 }
 
 async function getOperatorPerformance(month, year) {
     await window.dbReady;
     const db = getDB();
     if (!db) return [];
-    const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs, query, where } = await getFS();
     const yearNum = year && year !== "all" ? (typeof year === "string" ? parseInt(year) : year) : null;
     if (!yearNum) return [];
     let q = collection(db, "operator_performance");
@@ -938,7 +973,7 @@ async function getOperatorHistory(normName, year) {
     await window.dbReady;
     const db = getDB();
     if (!db || !normName) return [];
-    const { collection, getDocs, query, where, orderBy } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs, query, where, orderBy } = await getFS();
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(
         collection(db, "operator_performance"),
@@ -954,7 +989,7 @@ async function getStaffTurnoArea(normName, month, year) {
     await window.dbReady;
     const db = getDB();
     if (!db || !normName) return { turno: null, area: null };
-    const { collection, getDocs, query, where, orderBy, limit } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs, query, where, orderBy, limit } = await getFS();
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const monthStr = month || (new Date().getMonth() + 1).toString().padStart(2, "0");
     const q = query(
@@ -975,10 +1010,12 @@ async function getStaffTurnoArea(normName, month, year) {
 }
 
 async function getUniqueOperators() {
+    const cached = cacheGet("unique_ops");
+    if (cached) return cached;
     await window.dbReady;
     const db = getDB();
     if (!db) return [];
-    const { collection, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs } = await getFS();
     const snap = await getDocs(collection(db, "operator_performance"));
     const map = new Map();
     snap.docs.forEach(d => {
@@ -988,13 +1025,18 @@ async function getUniqueOperators() {
             map.set(key, { normName: data.normName, name: data.name });
         }
     });
-    return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    cacheSet("unique_ops", result);
+    return result;
 }
 
 async function getGroupAverages(year, area = null) {
+    const cacheKey = "avg_" + year + (area ? "_" + area : "");
+    const cached = cacheGet(cacheKey);
+    if (cached) return cached;
     const db = getDB();
     if (!db) return {};
-    const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    const { collection, getDocs, query, where } = await getFS();
     const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
     const q = query(collection(db, "operator_performance"), where("year", "==", yearNum));
     const snap = await getDocs(q);
@@ -1044,6 +1086,7 @@ async function getGroupAverages(year, area = null) {
             avgManejo: Math.round(d.manejo / d.count)
         };
     });
+    cacheSet(cacheKey, result);
     return result;
 }
 
@@ -1052,7 +1095,7 @@ async function getGlobalInsights(month = null, year = new Date().getFullYear()) 
     try {
         const db = getDB();
         if (!db) return [];
-        const { collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        const { collection, getDocs, query, where } = await getFS();
 
         const yearNum = typeof year === "string" ? parseInt(year) : (year || new Date().getFullYear());
         const perfRef = collection(db, "operator_performance");
@@ -1229,7 +1272,7 @@ async function signInWithGoogle() {
     console.log("signInWithGoogle auth:", auth);
     if (!auth) { console.error("Firebase Auth no disponible"); return null; }
     try {
-        const { signInWithPopup, GoogleAuthProvider } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+        const { signInWithPopup, GoogleAuthProvider } = await getAuthMod();
         const provider = new GoogleAuthProvider();
         const result = await signInWithPopup(auth, provider);
         console.log("signInWithGoogle user:", result.user);
@@ -1243,7 +1286,7 @@ async function signInWithGoogle() {
 async function signOutUser() {
     const auth = getAuth();
     if (!auth) return;
-    const { signOut } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+    const { signOut } = await getAuthMod();
     await signOut(auth);
 }
 
@@ -4571,6 +4614,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     const [year, setYear] = useState(new Date().getFullYear().toString());
     const [history, setHistory] = useState([]);
     const [groupAvg, setGroupAvg] = useState({});
+    const [opArea, setOpArea] = useState(null);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => { getUniqueOperators().then(setAgents); }, []);
@@ -4578,21 +4622,19 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
     useEffect(() => {
         if (!selectedAgent) return;
         setLoading(true);
-        Promise.all([
-            getOperatorHistory(selectedAgent, year),
-            getGroupAverages(year),
-            getStaffList()
-        ]).then(([h, g, staff]) => {
-            setHistory(h);
-            // Find operator's area from staff
-            const opArea = selectedAgent ? (staff.find(s => s.normName === selectedAgent)?.area || null) : null;
-            // If operator has an area, reload averages filtered by that area
-            if (opArea) {
-                getGroupAverages(year, opArea).then(ga => setGroupAvg(ga));
-            } else {
+        // First get staff to find operator's area, then fetch history + averages with area filter
+        getStaffList().then(staff => {
+            const staffEntry = staff.find(s => s.normName === selectedAgent) || staff.find(s => (s.name ? normalizeName(s.name) : "") === selectedAgent);
+            const area = (staffEntry?.area || null);
+            setOpArea(area);
+            Promise.all([
+                getOperatorHistory(selectedAgent, year),
+                getGroupAverages(year, area || undefined)
+            ]).then(([h, g]) => {
+                setHistory(h);
                 setGroupAvg(g);
-            }
-            setLoading(false);
+                setLoading(false);
+            });
         });
     }, [selectedAgent, year]);
 
@@ -4644,7 +4686,7 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
             React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
                 React.createElement("button", { onClick: onBack, style: { background: "#fff", border: `1px solid ${C.border}`, borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.navy } }, "←"),
                 React.createElement("div", null,
-                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Perfil de Operador <CHANGE>"),
+                    React.createElement("h2", { style: { margin: 0, color: C.navy, fontWeight: 900 } }, "👤 Perfil de Operador"),
                     React.createElement("p", { style: { margin: "4px 0 0", color: C.gray, fontSize: 13 } }, "Análisis de trayectoria individual y comparativa")
                 )
             ),
@@ -4675,11 +4717,18 @@ function ViewPerfilOperador({ user, onBack, initialAgent = null }) {
 
         selectedAgent && !loading && stats && React.createElement("div", { className: "animate-fade" },
             // KPIs
-            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 } },
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 4 } },
                 React.createElement(StatKpi, { label: "Total Atendidas (Año)", value: stats.totalC.toLocaleString(), accent: C.blue }),
                 React.createElement(StatKpi, { label: "Total Abandonadas", value: stats.totalAb.toLocaleString(), accent: C.red }),
                 React.createElement(StatKpi, { label: "Eficiencia Avg", value: `${stats.avgEff}%`, sub: "% Voz Preparada", accent: C.green }),
                 React.createElement(StatKpi, { label: "Productividad Avg", value: stats.avgProd, sub: "Contestadas / Hora", accent: C.mid })
+            ),
+
+            opArea && React.createElement("div", { style: { fontSize: 11, color: C.mid, fontWeight: 700, marginBottom: 12, marginTop: 2, textAlign: "right" } },
+                `⚡ Promedio comparado contra operadores del área: ${opArea}`
+            ),
+            !opArea && React.createElement("div", { style: { fontSize: 11, color: C.gray, fontWeight: 600, marginBottom: 12, marginTop: 2, textAlign: "right" } },
+                "⚠ Sin área asignada — promedio general"
             ),
 
             // Charts Dashboard
@@ -4776,84 +4825,51 @@ function ViewGestorPersonal({ user, onBack }) {
             setTurnos(tList);
             setAreas(aList);
 
-            // 1. Cargar personal ya registrado normalizando el ID
+            // 1. Cargar personal ya registrado, deduplicando por ID sin espacios
             const rawMap = new Map();
             registered.forEach(s => {
-                const id = normalizeName(s.normName || s.name);
-                if (id) {
-                    // Si ya existe, conservar el que tenga más datos (turno, area etc.)
-                    const existing = rawMap.get(id);
-                    if (existing && !existing.turno && s.turno) {
-                        rawMap.set(id, { ...existing, ...s, normName: id });
-                    } else if (!existing) {
-                        rawMap.set(id, { ...s, normName: id });
-                    }
+                const rawId = s.normName || s.name || "";
+                const id = normalizeName(rawId).replace(/\s+/g, "");
+                if (!id) return;
+                const existing = rawMap.get(id);
+                if (existing) {
+                    // Fusionar: si el existente no tiene turno/area y el nuevo sí, actualizar
+                    rawMap.set(id, { ...existing, ...s, normName: existing.normName || s.normName });
+                } else {
+                    rawMap.set(id, { ...s, normName: id });
                 }
             });
 
-            // 2. Buscar duplicados: personas cuyo normName esté contenido en otro
-            //    (ej: "ABALOSJOAQUIN" contenido en "ABALOS JOAQUIN")
-            const uniqueKeys = new Set(rawMap.keys());
-            for (const k of uniqueKeys) {
-                if (!rawMap.has(k)) continue;
-                for (const other of uniqueKeys) {
-                    if (k === other || !rawMap.has(other)) continue;
-                    const name1 = (rawMap.get(k).name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (rawMap.get(other).name || "").toUpperCase().replace(/\s+/g, "");
-                    // Si un nombre está contenido dentro del otro, fusionar
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                        rawMap.delete(worst);
-                    }
-                }
-            }
-
-            // 3. Cargar operadores con desempeño que NO estén en personal
+            // 2. Operadores con desempeño que NO estén en personal
             performance.forEach(op => {
-                const id = normalizeName(op.normName || op.name);
-                if (id && !rawMap.has(id)) {
-                    rawMap.set(id, { 
-                        ...op, 
-                        normName: id,
-                        turno: "—", 
-                        area: "—" 
-                    });
-                } else if (id && rawMap.has(id)) {
+                const id = normalizeName(op.normName || op.name).replace(/\s+/g, "");
+                if (!id) return;
+                if (rawMap.has(id)) {
                     const existing = rawMap.get(id);
-                    if (!existing.name && op.name) {
-                        rawMap.set(id, { ...existing, name: op.name });
-                    } else if (!existing.turno && op.turno) {
-                        rawMap.set(id, { ...existing, turno: op.turno });
-                    } else if (!existing.area && op.area) {
-                        rawMap.set(id, { ...existing, area: op.area });
-                    }
+                    if (existing.turno && existing.area) return; // ya tiene todo
+                    rawMap.set(id, { ...existing, ...op, normName: existing.normName || id });
+                } else {
+                    rawMap.set(id, {
+                        ...op,
+                        normName: id,
+                        turno: "—",
+                        area: "—"
+                    });
                 }
             });
 
-            // 4. Revisar de nuevo con los de performance
-            for (const k of [...rawMap.keys()]) {
-                if (!rawMap.has(k)) continue; // ya fue eliminado en iteración previa
-                for (const other of [...rawMap.keys()]) {
-                    if (k === other || !rawMap.has(k) || !rawMap.has(other)) continue;
-                    const entry1 = rawMap.get(k);
-                    const entry2 = rawMap.get(other);
-                    if (!entry1 || !entry2) continue;
-                    const name1 = (entry1.name || "").toUpperCase().replace(/\s+/g, "");
-                    const name2 = (entry2.name || "").toUpperCase().replace(/\s+/g, "");
-                    if (name1 && name2 && (name1.includes(name2) || name2.includes(name1))) {
-                        const best = name1.length >= name2.length ? k : other;
-                        const worst = name1.length >= name2.length ? other : k;
-                        if (rawMap.has(worst) && rawMap.has(best)) {
-                            rawMap.set(best, { ...rawMap.get(worst), ...rawMap.get(best), normName: best });
-                            rawMap.delete(worst);
-                        }
-                    }
-                }
-            }
+            // 3. Convertir a array y asignar nombre visible
+            const merged = Array.from(rawMap.values()).map(s => {
+                // Buscar el mejor name visible (del staff o del performance)
+                const staffEntry = registered.find(r => normalizeName(r.normName || r.name).replace(/\s+/g, "") === (s.normName || "").replace(/\s+/g, ""));
+                const perfEntry = performance.find(p => normalizeName(p.normName || p.name).replace(/\s+/g, "") === (s.normName || "").replace(/\s+/g, ""));
+                return {
+                    ...s,
+                    name: s.name || staffEntry?.name || perfEntry?.name || s.normName
+                };
+            });
 
-            setStaff(Array.from(rawMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+            setStaff(merged.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
         } catch (e) {
             console.error("Error loading staff grid:", e);
         }
@@ -4983,7 +4999,7 @@ function ViewGestorPersonal({ user, onBack }) {
         setSaving(normName);
         const db = getDB();
         if (db) {
-            const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+            const { doc, setDoc } = await getFS();
             await setDoc(doc(db, "staff", normName), { name: newName }, { merge: true });
             setStaff(prev => prev.map(s => s.normName === normName ? { ...s, name: newName } : s));
         }
@@ -5295,7 +5311,7 @@ function App() {
 
         const subscribeAuth = async (auth) => {
             try {
-                const { onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+                const { onAuthStateChanged } = await getAuthMod();
                 unsub = onAuthStateChanged(auth, u => setUser(u || null));
             } catch (e) {
                 console.error("✗ Error inicializando auth:", e);
