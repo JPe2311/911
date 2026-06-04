@@ -1860,17 +1860,7 @@ function ViewResumen({ data }) {
                             )
                         ))
                     ),
-                    React.createElement("div", null,
-                        React.createElement("div", { style: { fontSize: 10, fontWeight: 800, color: C.red, marginBottom: 12 } }, "⚠️ BOTTOM 5 ACTIVIDAD"),
-                        agentsRanking.bot.map((a, i) => React.createElement("div", { key: a.nombre, style: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 } },
-                            React.createElement("div", { style: { width: 24, height: 24, borderRadius: "50%", background: "#fee2e2", color: C.red, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 900 } }, agentsRanking.total - i),
-                            React.createElement("div", { style: { flex: 1, fontSize: 11, fontWeight: 700, color: C.gray } }, a.nombre.split(",")[0]),
-                            React.createElement("div", { style: { textAlign: "right" } },
-                                React.createElement("div", { style: { fontSize: 12, fontWeight: 900, color: C.navy } }, a.contestadas),
-                                React.createElement("div", { style: { fontSize: 9, color: C.red, fontWeight: 700 } }, `${a.pctAbandonoCabina}%`)
-                            )
-                        ))
-                    )
+
                 )
             )
         ),
