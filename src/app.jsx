@@ -5384,6 +5384,58 @@ function PanelGlobalInsights({ user, filter }) {
     );
 }
 
+// ─── WHATSAPP SHARE ─────────────────────────────────────────────────────
+function generateWhatsAppText(files) {
+    const ab = files?.abandonadas?.totals || {};
+    const ag = files?.agentes?.agents || [];
+    const dpI = files?.despachoInicio || [];
+    const dpD = files?.despachoDerivacion || [];
+    const dpC = files?.despachoCreacion || [];
+    const meta = files?.abandonadas?.meta || files?.agentes?.meta || {};
+    const turnoLabel = meta.fechaDesde && meta.fechaHasta ? `${meta.fechaDesde} ${meta.horaDesde || ""} → ${meta.fechaHasta} ${meta.horaHasta || ""}` : "—";
+
+    const ofr = ab.ofrecidas || 0;
+    const cont = ab.contestadas || 0;
+    const aban = ab.abandonadas || 0;
+    const cola = ab.cola || 0;
+    const cabina = ab.cabina || 0;
+    const pctAt = ofr ? ((cont / ofr) * 100).toFixed(1) : "—";
+    const pctAb = ofr ? ((aban / ofr) * 100).toFixed(1) : "—";
+
+    const avg = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+    const tI = avg(dpI.map(d => d.tiempoSec || 0));
+    const tD = avg(dpD.map(d => d.tiempoSec || 0));
+    const tC = avg(dpC.map(d => d.tiempoSec || 0));
+
+    const top5 = ag.filter(a => a.ofrecidas >= 20).sort((a, b) => b.contestadas - a.contestadas).slice(0, 5);
+
+    const fmtS = s => { const m = Math.floor(s / 60); const seg = s % 60; return m > 0 ? `${m}m ${seg}s` : `${seg}s`; };
+
+    let txt = `📊 *RESUMEN ESTADÍSTICO 911*\n🗓 ${turnoLabel}\n\n`;
+    txt += `🔢 *MÉTRICAS PRINCIPALES*\n`;
+    txt += `📞 Ofrecidas: ${ofr.toLocaleString("es-AR")}\n`;
+    txt += `✅ Contestadas: ${cont.toLocaleString("es-AR")}\n`;
+    txt += `❌ Abandonadas: ${aban.toLocaleString("es-AR")}\n`;
+    txt += `🟠 Ab. Cola: ${cola} | 🟡 Ab. Cabina: ${cabina}\n`;
+    txt += `📈 % Atención: ${pctAt}% | % Abandono: ${pctAb}%\n\n`;
+
+    txt += `⏱️ *TIEMPOS SLA*\n`;
+    txt += `📋 Creación → Derivación: ${fmtS(tC)} (meta 2m)\n`;
+    txt += `🔄 Derivación → Inicio: ${fmtS(tD)} (meta 30s)\n`;
+    txt += `🚓 Inicio → Asignación: ${fmtS(tI)} (meta 2m)\n\n`;
+
+    if (top5.length) {
+        txt += `👤 *TOP 5 OPERADORES*\n`;
+        top5.forEach((a, i) => {
+            const pctV = a.pctVozPreparada || 0;
+            txt += `${i + 1}. ${a.nombre.split(",")[0]} — ${a.contestadas} llam. (${pctV}% Voz Prep)\n`;
+        });
+    }
+
+    txt += `\n📅 Generado automáticamente por SAE 911 — Sistema de Informes`;
+    return txt;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ════════════════════════════════════════════════════════════════════════════
@@ -5566,6 +5618,7 @@ function App() {
                     React.createElement("input", { type: "file", multiple: true, accept: ".csv", onChange: e => handleFiles(Array.from(e.target.files)), style: { position: "absolute", inset: 0, opacity: 0, cursor: "pointer" } })
                 ),
                 hasData && React.createElement("button", { onClick: reset, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer" } }, "↺ Reset"),
+                hasData && React.createElement("button", { onClick: () => { const t = generateWhatsAppText(files); navigator.clipboard.writeText(t).then(() => alert("✅ Texto copiado al portapapeles — pegálo en WhatsApp")); }, className: "no-print", style: { background: "#25D366", border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 13, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 } }, "💬"),
                 hasData && React.createElement("button", { onClick: () => window.print(), className: "no-print", style: { background: C.mid, border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "🖨 Imprimir"),
 
                 getAuth() && !user && React.createElement("button", { onClick: handleLogin, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "Ingresar con Google"),
