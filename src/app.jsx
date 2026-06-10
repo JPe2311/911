@@ -5385,7 +5385,7 @@ function PanelGlobalInsights({ user, filter }) {
 }
 
 // ─── WHATSAPP SHARE ─────────────────────────────────────────────────────
-function generateWhatsAppText(files) {
+function generateWhatsAppText(files, user = null) {
     const ab = files?.abandonadas?.totals || {};
     const ag = files?.agentes?.agents || [];
     const dpI = files?.despachoInicio || [];
@@ -5409,7 +5409,12 @@ function generateWhatsAppText(files) {
 
     const top5 = ag.filter(a => a.ofrecidas >= 20).sort((a, b) => b.contestadas - a.contestadas).slice(0, 5);
 
+    const dp = dpI.length ? dpI : (dpD.length ? dpD : dpC);
+    const top3Dist = [...dp].sort((a, b) => (b.tiempoSec || 0) - (a.tiempoSec || 0)).slice(0, 3);
+
     const fmtS = s => { const m = Math.floor(s / 60); const seg = s % 60; return m > 0 ? `${m}m ${seg}s` : `${seg}s`; };
+    const usuario = user?.displayName || user?.email || "Anónimo";
+    const ahora = new Date().toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour12: false, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     let txt = `📊 *RESUMEN ESTADÍSTICO 911*\n🗓 ${turnoLabel}\n\n`;
     txt += `🔢 *MÉTRICAS PRINCIPALES*\n`;
@@ -5432,7 +5437,14 @@ function generateWhatsAppText(files) {
         });
     }
 
-    txt += `\n📅 Generado automáticamente por SAE 911 — Sistema de Informes`;
+    if (top3Dist.length) {
+        txt += `\n🚓 *MAYORES TIEMPOS DE DESPACHO POR DISTRITO*\n`;
+        top3Dist.forEach((d, i) => {
+            txt += `${i + 1}. ${d.nombre || "—"}: ${fmtS(d.tiempoSec || 0)}\n`;
+        });
+    }
+
+    txt += `\n📅 *Informe generado por* ${usuario} a las ${ahora}`;
     return txt;
 }
 
@@ -5618,7 +5630,7 @@ function App() {
                     React.createElement("input", { type: "file", multiple: true, accept: ".csv", onChange: e => handleFiles(Array.from(e.target.files)), style: { position: "absolute", inset: 0, opacity: 0, cursor: "pointer" } })
                 ),
                 hasData && React.createElement("button", { onClick: reset, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer" } }, "↺ Reset"),
-                hasData && React.createElement("button", { onClick: () => { const t = generateWhatsAppText(files); navigator.clipboard.writeText(t).then(() => alert("✅ Texto copiado al portapapeles — pegálo en WhatsApp")); }, className: "no-print", style: { background: "#25D366", border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 13, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 } }, "💬"),
+                hasData && React.createElement("button", { onClick: () => { const t = generateWhatsAppText(files, user); navigator.clipboard.writeText(t).then(() => alert("✅ Texto copiado al portapapeles — pegálo en WhatsApp")); }, className: "no-print", style: { background: "#25D366", border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 13, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 } }, "💬"),
                 hasData && React.createElement("button", { onClick: () => window.print(), className: "no-print", style: { background: C.mid, border: "none", color: "#fff", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "🖨 Imprimir"),
 
                 getAuth() && !user && React.createElement("button", { onClick: handleLogin, style: { background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#94a3b8", borderRadius: 7, padding: "5px 12px", fontSize: 11, cursor: "pointer", fontWeight: 700 } }, "Ingresar con Google"),
