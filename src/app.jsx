@@ -4906,6 +4906,24 @@ function ViewGestorPersonal({ user, onBack }) {
     const [areaFilter, setAreaFilter] = useState("all");
     const [turnoFilter, setTurnoFilter] = useState("all");
 
+    const exportCSV = () => {
+        const header = "Nombre;Turno;Area";
+        const rows = staff.map(s => {
+            const name = (s.name || s.normName || "").replace(/"/g, '""');
+            const turno = (s.turno || "").replace(/"/g, '""');
+            const area = (s.area || "").replace(/"/g, '""');
+            return `${name};${turno};${area}`;
+        });
+        const csv = [header, ...rows].join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `personal_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     const loadStaff = async () => {
         setLoading(true);
         try {
@@ -5154,7 +5172,12 @@ function ViewGestorPersonal({ user, onBack }) {
                 },
                     React.createElement("option", { value: "all" }, "Todos los Turnos"),
                     turnos.map(t => React.createElement("option", { key: t, value: t }, t))
-                )
+                ),
+                React.createElement("button", {
+                    onClick: exportCSV,
+                    title: "Exportar listado de personal a CSV",
+                    style: { padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${C.mid}`, fontSize: 13, fontWeight: 700, color: C.mid, background: "#fff", cursor: "pointer", whiteSpace: "nowrap" }
+                }, "📥 Exportar CSV")
             )
         ),
 
